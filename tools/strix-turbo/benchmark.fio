@@ -1,0 +1,449 @@
+# ============================================================================
+# WSL2 Storage Performance Benchmark Suite
+# Designed for NVMe Passthrough vs VHDX comparison testing
+# ============================================================================
+# This fio benchmark suite comprehensively tests storage performance across
+# multiple workload patterns and I/O engine implementations to help diagnose
+# and validate storage performance improvements in WSL2.
+#
+# Expected "Good" NVMe Performance Baseline (for reference):
+#   - Random 4K IOPS:    100,000+ IOPS
+#   - Sequential R/W:    3,000-5,000 MB/s (depends on PCIe gen)
+#   - Latency (p99):     <100 µs for random 4K ops
+#   - io_uring perf:     5-15% faster than libaio on high queue depths
+# ============================================================================
+
+[global]
+# ============================================================================
+# GLOBAL CONFIGURATION
+# ============================================================================
+# Defines settings shared across all jobs unless overridden
+
+# Output format: JSON for easy parsing and comparison
+output_format=json
+output=wsl2_benchmark_results.json
+
+# Job startup settings
+log_avg_msec=1000
+group_reporting=1
+norandommap=1
+
+# File/Device configuration
+# IMPORTANT: Change these paths to match your test device
+# For NVMe: /dev/nvmeXnXpX or /mnt/nvme/testfile
+# For VHDX: /mnt/vhdx_mount/testfile
+# Create a 10GB test file in tmpfs or on the actual device
+filename=/mnt/test/fio_testfile_10GB
+filesize=10G
+file_service_type=random
+create_on_open=1
+allow_file_create=1
+
+# Direct I/O settings - CRITICAL for accurate storage testing
+# direct=1 bypasses page cache interference
+direct=1
+buffered=0
+
+# Random number generation
+randomize=0
+
+# Thread/Process model
+numjobs=1
+
+# ============================================================================
+# JOB 1: RANDOM 4K READ/WRITE - IOPS TEST (io_uring engine)
+# ============================================================================
+# Tests maximum random I/O operations per second using io_uring.
+# io_uring is the modern, high-performance I/O engine with better scalability.
+#
+# What this measures:
+#   - Peak IOPS capability for small random I/O patterns
+#   - Typical for database operations, metadata operations
+#
+# Expected values for NVMe:
+#   - Read IOPS:  80,000 - 150,000 IOPS
+#   - Write IOPS: 80,000 - 150,000 IOPS
+#   - Latency:    10-50 µs (p99)
+#
+# Benchmark duration: 60 seconds (after 20s warmup)
+[rand_4k_rw_iouring]
+ioengine=io_uring
+iodepth=32
+blocksize=4k
+readwrite=randrw
+rwmixread=50
+runtime=60
+ramp_time=20
+description="Random 4K RW (50/50) with io_uring - peak IOPS test"
+
+# ============================================================================
+# JOB 2: RANDOM 4K READ/WRITE - IOPS TEST (libaio engine)
+# ============================================================================
+# Same test as Job 1 but using libaio for comparison.
+# libaio is the traditional high-performance engine (uses Linux AIO).
+#
+# Comparison notes:
+#   - io_uring should be 5-15% faster on high queue depths (32+)
+#   - libaio has better compatibility with older kernels
+#
+[rand_4k_rw_libaio]
+ioengine=libaio
+iodepth=32
+blocksize=4k
+readwrite=randrw
+rwmixread=50
+runtime=60
+ramp_time=20
+description="Random 4K RW (50/50) with libaio - baseline IOPS test"
+
+# ============================================================================
+# JOB 3: RANDOM 4K READ/WRITE - IOPS TEST (sync engine)
+# ============================================================================
+# Synchronous I/O for comparison. This is typically slower but shows
+# system call overhead and fundamental I/O performance without async buffering.
+#
+# Expected performance impact:
+#   - 50-70% slower than async engines due to blocking nature
+#   - Represents worst-case single-threaded performance
+#
+[rand_4k_rw_sync]
+ioengine=sync
+iodepth=1
+blocksize=4k
+readwrite=randrw
+rwmixread=50
+runtime=60
+ramp_time=20
+description="Random 4K RW (50/50) with sync - worst-case comparison"
+
+# ============================================================================
+# JOB 4: SEQUENTIAL READ - THROUGHPUT TEST (io_uring)
+# ============================================================================
+# Tests maximum sequential read throughput using io_uring.
+# Sequential patterns are typical for large file operations, backups, streaming.
+#
+# What this measures:
+#   - Peak read bandwidth capability
+#   - Memory bandwidth utilization
+#   - Typical for media playback, data transfers
+#
+# Expected values for NVMe:
+#   - NVMe Gen3 (PCIe 3.0): 3,000-3,500 MB/s
+#   - NVMe Gen4 (PCIe 4.0): 4,000-7,000 MB/s
+#   - Latency: 1-10 ms per operation
+#
+# Block size 128K used for efficient sequential access
+[seq_read_iouring]
+ioengine=io_uring
+iodepth=32
+blocksize=128k
+readwrite=read
+runtime=60
+ramp_time=20
+description="Sequential 128K read with io_uring - throughput test"
+
+# ============================================================================
+# JOB 5: SEQUENTIAL WRITE - THROUGHPUT TEST (io_uring)
+# ============================================================================
+# Tests maximum sequential write throughput using io_uring.
+# Identifies any write-specific bottlenecks.
+#
+# Expected values for NVMe:
+#   - NVMe Gen3: 2,500-3,000 MB/s
+#   - NVMe Gen4: 3,500-6,000 MB/s
+#   - Write performance often slightly lower than read
+#
+[seq_write_iouring]
+ioengine=io_uring
+iodepth=32
+blocksize=128k
+readwrite=write
+runtime=60
+ramp_time=20
+description="Sequential 128K write with io_uring - throughput test"
+
+# ============================================================================
+# JOB 6: SEQUENTIAL READ - THROUGHPUT TEST (libaio comparison)
+# ============================================================================
+# Baseline sequential read with libaio.
+
+[seq_read_libaio]
+ioengine=libaio
+iodepth=32
+blocksize=128k
+readwrite=read
+runtime=60
+ramp_time=20
+description="Sequential 128K read with libaio - baseline throughput"
+
+# ============================================================================
+# JOB 7: SEQUENTIAL WRITE - THROUGHPUT TEST (libaio comparison)
+# ============================================================================
+# Baseline sequential write with libaio.
+
+[seq_write_libaio]
+ioengine=libaio
+iodepth=32
+blocksize=128k
+readwrite=write
+runtime=60
+ramp_time=20
+description="Sequential 128K write with libaio - baseline throughput"
+
+# ============================================================================
+# JOB 8: MIXED RANDOM WORKLOAD - 70/30 READ/WRITE (io_uring)
+# ============================================================================
+# Tests realistic mixed workload with 70% reads, 30% writes.
+# This pattern is typical for database workloads and general-purpose storage.
+#
+# What this measures:
+#   - Read-heavy workload performance
+#   - Write interference on read performance
+#   - Typical for OLTP databases
+#
+# Expected values for NVMe:
+#   - Combined IOPS: 60,000-100,000 IOPS
+#   - Read latency: 20-50 µs (p99)
+#   - Write latency: 30-80 µs (p99)
+#
+[rand_mixed_70r30w_iouring]
+ioengine=io_uring
+iodepth=32
+blocksize=4k
+readwrite=randrw
+rwmixread=70
+runtime=60
+ramp_time=20
+description="Random 4K mixed 70R/30W with io_uring - realistic workload"
+
+# ============================================================================
+# JOB 9: MIXED RANDOM WORKLOAD - 70/30 READ/WRITE (libaio)
+# ============================================================================
+# Baseline mixed workload with libaio.
+
+[rand_mixed_70r30w_libaio]
+ioengine=libaio
+iodepth=32
+blocksize=4k
+readwrite=randrw
+rwmixread=70
+runtime=60
+ramp_time=20
+description="Random 4K mixed 70R/30W with libaio - baseline workload"
+
+# ============================================================================
+# JOB 10: LATENCY-FOCUSED TEST - LOW QUEUE DEPTH (io_uring)
+# ============================================================================
+# Tests latency with minimal queue depth (QD=1).
+# This simulates single-threaded applications and latency-sensitive workloads.
+#
+# What this measures:
+#   - Single-threaded application performance
+#   - Minimum latency achievable
+#   - Overhead of system calls and I/O engine
+#
+# Expected values for NVMe:
+#   - Average latency: 10-50 µs
+#   - p99 latency: 50-200 µs
+#   - p99.9 latency: 100-500 µs
+#   - Consistency and absence of spikes
+#
+# Using blocksize=4k for typical database access patterns
+[latency_focused_qd1_iouring]
+ioengine=io_uring
+iodepth=1
+blocksize=4k
+readwrite=randrw
+rwmixread=50
+runtime=60
+ramp_time=20
+description="Latency test: QD=1 with io_uring - single-threaded"
+
+# ============================================================================
+# JOB 11: LATENCY-FOCUSED TEST - LOW QUEUE DEPTH (libaio)
+# ============================================================================
+# Baseline latency test with libaio at QD=1.
+
+[latency_focused_qd1_libaio]
+ioengine=libaio
+iodepth=1
+blocksize=4k
+readwrite=randrw
+rwmixread=50
+runtime=60
+ramp_time=20
+description="Latency test: QD=1 with libaio - single-threaded baseline"
+
+# ============================================================================
+# JOB 12: QUEUE DEPTH SCALING - QD=1 (io_uring)
+# ============================================================================
+# Tests performance at queue depth 1.
+# Baseline for queue depth scaling comparison.
+
+[qd_scaling_qd1_iouring]
+ioengine=io_uring
+iodepth=1
+blocksize=4k
+readwrite=randrw
+rwmixread=50
+runtime=60
+ramp_time=20
+description="QD scaling: QD=1 with io_uring"
+
+# ============================================================================
+# JOB 13: QUEUE DEPTH SCALING - QD=16 (io_uring)
+# ============================================================================
+# Tests performance at queue depth 16.
+# Allows some parallelism while still manageable.
+
+[qd_scaling_qd16_iouring]
+ioengine=io_uring
+iodepth=16
+blocksize=4k
+readwrite=randrw
+rwmixread=50
+runtime=60
+ramp_time=20
+description="QD scaling: QD=16 with io_uring"
+
+# ============================================================================
+# JOB 14: QUEUE DEPTH SCALING - QD=32 (io_uring)
+# ============================================================================
+# Tests performance at queue depth 32.
+# High parallelism, typical for production workloads.
+
+[qd_scaling_qd32_iouring]
+ioengine=io_uring
+iodepth=32
+blocksize=4k
+readwrite=randrw
+rwmixread=50
+runtime=60
+ramp_time=20
+description="QD scaling: QD=32 with io_uring"
+
+# ============================================================================
+# JOB 15: QUEUE DEPTH SCALING - QD=64 (io_uring)
+# ============================================================================
+# Tests performance at queue depth 64.
+# High parallelism for maximum throughput testing.
+# Note: Some storage devices may not benefit beyond QD=32.
+
+[qd_scaling_qd64_iouring]
+ioengine=io_uring
+iodepth=64
+blocksize=4k
+readwrite=randrw
+rwmixread=50
+runtime=60
+ramp_time=20
+description="QD scaling: QD=64 with io_uring"
+
+# ============================================================================
+# JOB 16: QUEUE DEPTH SCALING - QD=1 (libaio baseline)
+# ============================================================================
+# Baseline queue depth 1 with libaio for comparison.
+
+[qd_scaling_qd1_libaio]
+ioengine=libaio
+iodepth=1
+blocksize=4k
+readwrite=randrw
+rwmixread=50
+runtime=60
+ramp_time=20
+description="QD scaling: QD=1 with libaio"
+
+# ============================================================================
+# JOB 17: QUEUE DEPTH SCALING - QD=16 (libaio baseline)
+# ============================================================================
+# Baseline queue depth 16 with libaio.
+
+[qd_scaling_qd16_libaio]
+ioengine=libaio
+iodepth=16
+blocksize=4k
+readwrite=randrw
+rwmixread=50
+runtime=60
+ramp_time=20
+description="QD scaling: QD=16 with libaio"
+
+# ============================================================================
+# JOB 18: QUEUE DEPTH SCALING - QD=32 (libaio baseline)
+# ============================================================================
+# Baseline queue depth 32 with libaio.
+
+[qd_scaling_qd32_libaio]
+ioengine=libaio
+iodepth=32
+blocksize=4k
+readwrite=randrw
+rwmixread=50
+runtime=60
+ramp_time=20
+description="QD scaling: QD=32 with libaio"
+
+# ============================================================================
+# JOB 19: QUEUE DEPTH SCALING - QD=64 (libaio baseline)
+# ============================================================================
+# Baseline queue depth 64 with libaio.
+
+[qd_scaling_qd64_libaio]
+ioengine=libaio
+iodepth=64
+blocksize=4k
+readwrite=randrw
+rwmixread=50
+runtime=60
+ramp_time=20
+description="QD scaling: QD=64 with libaio"
+
+# ============================================================================
+# ADDITIONAL NOTES ON INTERPRETATION
+# ============================================================================
+#
+# IOPS Performance Comparison:
+#   - Look at iops_mean across jobs to compare engines
+#   - io_uring should equal or exceed libaio, especially at QD>=32
+#   - sync engine will be significantly slower (5-10x)
+#
+# Throughput Analysis:
+#   - Sequential tests show maximum bandwidth
+#   - Compare seq_read vs seq_write for asymmetry
+#   - VHDX typically shows 20-40% lower throughput than NVMe passthrough
+#
+# Latency Analysis:
+#   - Low QD tests show per-operation latency
+#   - Check clat_ns fields for completion latencies
+#   - Look for outliers/spikes that indicate controller throttling
+#
+# Queue Depth Scaling:
+#   - Plot IOPS vs QD to see performance curve
+#   - Flat curves after QD=32 suggest device saturation
+#   - NVMe should show improvement up to QD=32-64
+#
+# Interpreting Results:
+#   - Good NVMe: Scales well to QD=32, consistent latency
+#   - Degraded VHDX: Lower IOPS, higher latency variance
+#   - Throttling: Flat IOPS curve with increasing latency
+#
+# ============================================================================
+# RUNNING THE BENCHMARK
+# ============================================================================
+#
+# Basic usage:
+#   fio /home/user/WSL/tools/strix-turbo/benchmark.fio
+#
+# To test against a specific device/mount:
+#   fio --filename=/path/to/test/mount/file /home/user/WSL/tools/strix-turbo/benchmark.fio
+#
+# To create test file first:
+#   mkdir -p /mnt/test
+#   dd if=/dev/zero of=/mnt/test/fio_testfile_10GB bs=1M count=10240
+#   fio /home/user/WSL/tools/strix-turbo/benchmark.fio
+#
+# To analyze results:
+#   cat wsl2_benchmark_results.json | jq '.jobs[] | {job: .jobname, iops: .read.iops}'
+#
+# ============================================================================

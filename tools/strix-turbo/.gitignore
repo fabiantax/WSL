@@ -1,0 +1,37 @@
+# Build artifacts
+build/
+output/
+*.o
+*.a
+*.so
+
+# Compiled binaries
+test_simd_path_utils
+example_wsl_integration
+strix-fuse
+
+# Python
+__pycache__/
+*.pyc
+venv/
+*.egg-info/
+.eggs/
+
+# Logs
+logs/
+*.log
+
+# Model files (too large)
+*.onnx
+*.pt
+*.pth
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

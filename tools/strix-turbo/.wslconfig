@@ -1,0 +1,158 @@
+# ============================================================================
+# WSL2 Optimized Configuration for AMD Ryzen AI Max+ 395 (Strix Halo)
+# ============================================================================
+# Target Hardware: 16 Zen 5 Cores, optimized for maximum performance
+# Purpose: Maximize WSL2 VM performance with aggressive memory allocation,
+#          CPU core utilization, and kernel-level performance tuning
+# ============================================================================
+
+[wsl2]
+
+# ============================================================================
+# MEMORY CONFIGURATION
+# ============================================================================
+# Allocate 32GB of RAM to WSL2 VM
+# The AMD Ryzen AI Max+ 395 can support this with Strix Halo's configuration
+# This allows for large containerized workloads and development environments
+# Adjust downward if you need to preserve system RAM for other applications
+memory=32GB
+
+# ============================================================================
+# PROCESSOR CONFIGURATION
+# ============================================================================
+# Utilize all 16 Zen 5 cores for maximum parallelization
+# These cores are optimized for high-frequency workloads
+# Having all cores available prevents bottlenecks in multi-threaded tasks
+# (containers, build processes, development environments, VMs within WSL2)
+processors=16
+
+# ============================================================================
+# SWAP CONFIGURATION
+# ============================================================================
+# Disable swap entirely since we're allocating 32GB of physical RAM
+# With 32GB allocated, swap is unnecessary and would only slow down operations
+# Swap would add I/O overhead that degrades performance on NVMe drives
+# If you reduce 'memory' setting below 16GB, increase swap or leave at default
+swap=0
+
+# ============================================================================
+# NESTED VIRTUALIZATION
+# ============================================================================
+# Enable nested virtualization for Docker, KVM, and container technologies
+# Critical for running containers within WSL2 or Docker Desktop integration
+# Minimal performance impact on modern CPUs with hardware virt extensions
+# Required for advanced containerization and VM workloads
+nestedVirtualization=true
+
+# ============================================================================
+# VM IDLE TIMEOUT
+# ============================================================================
+# Disable automatic VM sleep after idle period
+# This prevents the WSL2 VM from being suspended when not in active use
+# Keeps the VM running continuously, eliminating resume latency
+# Set to a very high value (65535 minutes = ~45 days) to effectively disable
+# If you want the VM to sleep: set vmIdleTimeout=60 (for 1 hour)
+vmIdleTimeout=65535
+
+# ============================================================================
+# NETWORKING OPTIMIZATIONS
+# ============================================================================
+# DNS tunneling mode: mirrored
+# 'mirrored' mode synchronizes Windows DNS settings with WSL2
+# Provides better DNS resolution performance and consistency
+# Alternative 'natExternalDNS=true' for custom DNS routing
+dnsTunneling=true
+
+# Networking mode: mirrored
+# 'mirrored' mode gives WSL2 the same IP as the host (localhost)
+# Simplifies networking and eliminates port translation complexity
+# Makes accessing WSL2 services from Windows seamless (localhost:port)
+# Alternative 'nat' uses traditional NAT but with more overhead
+networkingMode=mirrored
+
+# Local host forwarding enabled
+# Allows Windows applications to access WSL2 services via localhost
+# Essential for development workflows (web servers, databases, APIs)
+localhostForwarding=true
+
+# ============================================================================
+# MEMORY EFFICIENCY
+# ============================================================================
+# Enable page reporting for memory optimization
+# Allows unused WSL2 VM memory to be returned to Windows host
+# Balances memory usage: keeps allocated RAM for performance but releases unused
+# Prevents memory waste when VM memory usage drops temporarily
+pageReporting=true
+
+# Automatic memory reclamation mode: gradual
+# Reclaims unused memory slowly and continuously in background
+# 'gradual' (or 'default') is less aggressive than 'aggressive'
+# Avoids sudden performance dips from memory reclamation pauses
+# 'aggressive' reclaims faster but can cause noticeable latency spikes
+autoMemoryReclaim=gradual
+
+# ============================================================================
+# KERNEL PERFORMANCE TUNING
+# ============================================================================
+# Kernel command line parameters for maximum performance:
+#
+# transparent_hugepage=always
+#   - Enable transparent huge pages for improved TLB efficiency
+#   - Reduces memory access latency for large working sets
+#   - Beneficial for memory-intensive workloads (databases, ML, cache-heavy apps)
+#   - Can improve cache hit rates by 5-15% in suitable workloads
+#
+# mitigations=off
+#   - DISABLE Spectre/Meltdown CPU mitigations
+#   - Reclaims 5-15% CPU performance previously lost to mitigations
+#   - WARNING: Only safe if system is isolated/trusted network
+#   - For exposed systems: use 'mitigations=auto,nosmt' instead
+#   - If security is priority: remove this parameter entirely
+#
+# Default value if not specified: 'mitigations=auto'
+kernelCommandLine=transparent_hugepage=always mitigations=off
+
+# ============================================================================
+# ADDITIONAL PERFORMANCE NOTES
+# ============================================================================
+# GPU Integration:
+#   - If using GPU passthrough: configure in separate GPU settings
+#   - WSLg provides GPU for GUI applications automatically
+#
+# Storage:
+#   - Keep WSL distro on fast NVMe (not HDD)
+#   - Use ext4 filesystem for best performance
+#   - Consider VirtioFS for faster file operations if available
+#
+# Development Optimizations:
+#   - Consider disabling Windows Defender scans in WSL2 directory
+#   - Use 'wsl --manage <distro> --set-version 2' for WSL2 features
+#   - Monitor with 'wsl --system -e free -h' for actual memory usage
+#
+# Temperature Monitoring:
+#   - Strix Halo has excellent cooling; 32GB allocation should be stable
+#   - Monitor with 'wsl -l -v' and Windows Task Manager
+#   - Reduce memory if thermal throttling occurs
+#
+
+# ============================================================================
+# INTEROP SETTINGS (Optional, uncomment to enable)
+# ============================================================================
+# Interop between Windows and WSL2
+# interopEnabled=true
+
+# Allow Windows processes to be invoked from WSL2
+# appendWindowsPath=true
+
+# ============================================================================
+# EXPERIMENTAL FEATURES (Uncomment to enable)
+# ============================================================================
+# Advanced networking for even better performance (requires Windows 11 22H2+)
+# networkingMode=mirrored
+# dnsTunneling=true
+
+# Use sparse VHD (Virtual Hard Disk) to save disk space
+# sparseVhd=true
+
+# Use WSLg for graphical applications
+# wslgEnabled=true

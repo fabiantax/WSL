@@ -1,0 +1,305 @@
+#
+# Kconfig Fragment for WSL2 Linux Kernel - AMD Ryzen AI Max+ 395 (Strix Halo)
+# Optimized for 16 Zen 5 cores
+#
+# This fragment should be applied on top of the base WSL2 kernel config using:
+#   ./scripts/kconfig/merge_config.sh .config kconfig-zen5.fragment
+#
+
+# ==============================================================================
+# CPU ARCHITECTURE OPTIMIZATION - AMD Zen 5 (using Zen 4 kernel config)
+# ==============================================================================
+
+# Zen 5 processors use the Zen 4 kernel optimization path
+# This enables instruction scheduling and tuning specific to Zen 4/5 architecture
+CONFIG_MZEN4=y
+
+# Disable generic CPU to ensure Zen 4 optimizations are used
+# CONFIG_GENERIC_CPU is not set
+
+# Enable AVX-512 support (available on Zen 5)
+CONFIG_X86_AVX512=y
+
+# Optimize for 16 cores - set appropriate NR_CPUS
+CONFIG_NR_CPUS=16
+
+# Enable NUMA for better memory locality on multi-core systems
+CONFIG_NUMA=y
+CONFIG_AMD_NUMA=y
+
+# ==============================================================================
+# PREEMPTION MODEL - Optimize for throughput over latency
+# ==============================================================================
+
+# Use voluntary preemption for better throughput on high-core-count systems
+# This reduces context switch overhead while maintaining reasonable responsiveness
+CONFIG_PREEMPT_VOLUNTARY=y
+# CONFIG_PREEMPT is not set
+# CONFIG_PREEMPT_NONE is not set
+
+# ==============================================================================
+# ASYNC I/O - Enable io_uring for modern async I/O operations
+# ==============================================================================
+
+# io_uring provides high-performance async I/O with lower overhead than traditional AIO
+CONFIG_IO_URING=y
+
+# Enable io_uring optimizations
+CONFIG_IO_WQ_AFFINITY=y
+
+# ==============================================================================
+# SCSI SUBSYSTEM - Multi-Queue for parallel I/O across 16 cores
+# ==============================================================================
+
+# Enable Multi-Queue SCSI by default for better I/O parallelism
+CONFIG_SCSI_MQ_DEFAULT=y
+
+# Ensure SCSI subsystem is enabled
+CONFIG_SCSI=y
+
+# ==============================================================================
+# BLOCK LAYER - Multi-Queue block layer for parallel I/O
+# ==============================================================================
+
+# Enable Multi-Queue block layer (required for modern NVMe/SCSI performance)
+CONFIG_BLK_MQ_PCI=y
+CONFIG_BLK_MQ_VIRTIO=y
+
+# Enable block layer optimizations
+CONFIG_BLK_CGROUP=y
+CONFIG_BLK_CGROUP_IOLATENCY=y
+CONFIG_BLK_CGROUP_IOCOST=y
+
+# ==============================================================================
+# MEMORY MANAGEMENT - Transparent Hugepages for better performance
+# ==============================================================================
+
+# Enable transparent hugepage support for automatic large page usage
+CONFIG_TRANSPARENT_HUGEPAGE=y
+CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS=y
+# CONFIG_TRANSPARENT_HUGEPAGE_MADVISE is not set
+
+# Enable additional hugepage sizes
+CONFIG_HUGETLBFS=y
+CONFIG_HUGETLB_PAGE=y
+
+# Memory compaction for better hugepage allocation
+CONFIG_COMPACTION=y
+CONFIG_MIGRATION=y
+
+# ==============================================================================
+# BPF/eBPF - Modern tracing and observability
+# ==============================================================================
+
+# Enable BPF subsystem for tracing, filtering, and performance monitoring
+CONFIG_BPF=y
+CONFIG_BPF_SYSCALL=y
+CONFIG_BPF_JIT=y
+CONFIG_BPF_JIT_ALWAYS_ON=y
+
+# Enable BPF-based tracing
+CONFIG_BPF_EVENTS=y
+CONFIG_HAVE_EBPF_JIT=y
+
+# Enable ftrace for kernel tracing
+CONFIG_FTRACE=y
+CONFIG_FUNCTION_TRACER=y
+CONFIG_DYNAMIC_FTRACE=y
+
+# Enable perf events for performance monitoring
+CONFIG_PERF_EVENTS=y
+
+# ==============================================================================
+# DISABLE HYPER-V OVERHEAD - Remove unnecessary Hyper-V features
+# ==============================================================================
+
+# WSL2 needs basic Hyper-V support, but many features add overhead
+# Keep essential features, disable extras
+
+# Disable Hyper-V balloon driver (memory ballooning not needed in WSL2)
+# CONFIG_HYPERV_BALLOON is not set
+
+# Disable Hyper-V utilities that add overhead
+# CONFIG_HYPERV_UTILS is not set
+
+# Keep Hyper-V storage and networking (required for WSL2)
+CONFIG_HYPERV_STORAGE=y
+CONFIG_HYPERV_NET=y
+
+# Disable synthetic video device (not needed for WSL2)
+# CONFIG_FB_HYPERV is not set
+
+# ==============================================================================
+# REMOVE LEGACY/BLOAT DRIVERS - Strip unnecessary drivers
+# ==============================================================================
+
+# Disable floppy disk support (legacy hardware)
+# CONFIG_BLK_DEV_FD is not set
+
+# Disable IDE subsystem (replaced by libata)
+# CONFIG_IDE is not set
+
+# Disable legacy parallel port support
+# CONFIG_PARPORT is not set
+
+# Disable ISA bus support (legacy)
+# CONFIG_ISA is not set
+
+# Disable legacy ISAPNP
+# CONFIG_ISAPNP is not set
+
+# Disable PC speaker (bloat)
+# CONFIG_INPUT_PCSPKR is not set
+
+# Disable legacy serial ports
+# CONFIG_SERIAL_8250 is not set
+
+# Disable legacy game port support
+# CONFIG_GAMEPORT is not set
+
+# Disable legacy sound drivers
+# CONFIG_SOUND_OSS_CORE is not set
+
+# Disable wireless drivers (not needed in WSL2)
+# CONFIG_WLAN is not set
+# CONFIG_WIRELESS is not set
+
+# Disable Bluetooth (not needed in WSL2)
+# CONFIG_BT is not set
+
+# Disable infrared support
+# CONFIG_IRDA is not set
+
+# Disable legacy PCMCIA/CardBus
+# CONFIG_PCCARD is not set
+
+# Disable legacy framebuffer devices (use DRM instead)
+# CONFIG_FB_VESA is not set
+# CONFIG_FB_EFI is not set
+
+# ==============================================================================
+# FILESYSTEM OPTIMIZATIONS
+# ==============================================================================
+
+# Enable ext4 optimizations
+CONFIG_EXT4_FS=y
+CONFIG_EXT4_FS_POSIX_ACL=y
+CONFIG_EXT4_FS_SECURITY=y
+
+# Enable FUSE for user-space filesystems (used by WSL2)
+CONFIG_FUSE_FS=y
+
+# Enable 9P for Plan 9 filesystem (used by WSL2 for Windows filesystem access)
+CONFIG_9P_FS=y
+CONFIG_9P_FS_POSIX_ACL=y
+
+# Disable rarely used filesystems to reduce kernel size
+# CONFIG_XFS_FS is not set
+# CONFIG_BTRFS_FS is not set
+# CONFIG_F2FS_FS is not set
+# CONFIG_JFS_FS is not set
+# CONFIG_REISERFS_FS is not set
+
+# ==============================================================================
+# NETWORK OPTIMIZATIONS
+# ==============================================================================
+
+# Enable TCP optimizations for high-throughput
+CONFIG_TCP_CONG_BBR=y
+CONFIG_DEFAULT_BBR=y
+
+# Enable TCP fast open for lower latency
+CONFIG_TCP_FASTOPEN=y
+
+# Enable multiqueue networking for parallel packet processing
+CONFIG_NET_RX_BUSY_POLL=y
+
+# ==============================================================================
+# SCHEDULER OPTIMIZATIONS
+# ==============================================================================
+
+# Enable CPU frequency scaling for power efficiency
+CONFIG_CPU_FREQ=y
+CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+
+# Enable AMD P-State driver for Zen 5 (better than acpi-cpufreq)
+CONFIG_X86_AMD_PSTATE=y
+
+# Automatic NUMA balancing for better performance on multi-core
+CONFIG_NUMA_BALANCING=y
+CONFIG_NUMA_BALANCING_DEFAULT_ENABLED=y
+
+# ==============================================================================
+# SECURITY - Keep essential security features
+# ==============================================================================
+
+# Keep modern security features enabled
+CONFIG_SECURITY=y
+CONFIG_SECURITYFS=y
+
+# Keep SELinux/AppArmor support for compatibility
+CONFIG_SECURITY_SELINUX=y
+CONFIG_SECURITY_APPARMOR=y
+
+# Enable kernel hardening
+CONFIG_FORTIFY_SOURCE=y
+CONFIG_HARDENED_USERCOPY=y
+
+# ==============================================================================
+# VIRTUALIZATION - WSL2 specific
+# ==============================================================================
+
+# Ensure Hyper-V guest support (required for WSL2)
+CONFIG_HYPERVISOR_GUEST=y
+CONFIG_PARAVIRT=y
+CONFIG_PARAVIRT_SPINLOCKS=y
+
+# Enable KVM support for nested virtualization (optional but useful)
+CONFIG_KVM=y
+CONFIG_KVM_AMD=y
+
+# ==============================================================================
+# PERFORMANCE MONITORING
+# ==============================================================================
+
+# Enable AMD performance monitoring for Zen 5
+CONFIG_PERF_EVENTS_AMD_POWER=y
+CONFIG_PERF_EVENTS_AMD_UNCORE=y
+
+# Enable CPU hardware events
+CONFIG_HW_PERF_EVENTS=y
+
+# ==============================================================================
+# MISCELLANEOUS OPTIMIZATIONS
+# ==============================================================================
+
+# Enable kernel samepage merging for memory efficiency
+CONFIG_KSM=y
+
+# Enable zswap for better memory usage
+CONFIG_ZSWAP=y
+CONFIG_ZSWAP_DEFAULT_ON=y
+CONFIG_Z3FOLD=y
+
+# Enable performance-oriented IO scheduler
+CONFIG_MQ_IOSCHED_DEADLINE=y
+CONFIG_MQ_IOSCHED_KYBER=y
+CONFIG_BFQ_GROUP_IOSCHED=y
+
+# Enable fast commit for ext4
+CONFIG_EXT4_FS_FAST_COMMIT=y
+
+# Disable kernel debugging features for production use
+# CONFIG_DEBUG_KERNEL is not set
+# CONFIG_DEBUG_INFO is not set
+# CONFIG_DEBUG_INFO_BTF is not set
+
+# Enable kernel module compression to save space
+CONFIG_MODULE_COMPRESS_XZ=y
+
+# Set timer frequency to 300Hz (good balance for throughput)
+CONFIG_HZ_300=y
+# CONFIG_HZ_1000 is not set
+CONFIG_HZ=300
+
+# End of Kconfig fragment

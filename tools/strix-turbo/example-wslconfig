@@ -1,0 +1,175 @@
+# Example .wslconfig for WSL2 with Custom Zen 5 Kernel
+#
+# Location: C:\Users\<YourUsername>\.wslconfig
+#
+# Instructions:
+# 1. Copy this file to C:\Users\<YourUsername>\.wslconfig
+# 2. Replace <YourUsername> with your actual Windows username
+# 3. Replace the kernel path with the actual path from build-zen5-kernel.sh output
+# 4. Restart WSL2: wsl --shutdown, then open terminal again
+#
+# For more options, see: https://docs.microsoft.com/en-us/windows/wsl/wslconfig
+
+[wsl2]
+# Path to custom Zen 5 optimized kernel
+# Replace with the actual kernel path from build output
+kernel=C:\Users\YourUsername\WSL-Kernels\bzImage-latest
+
+# Memory allocation (adjust based on your system)
+# Default: 50% of your Windows RAM
+# memory=8GB
+
+# CPU cores to allocate (adjust based on your system)
+# Default: All cores
+# processors=8
+
+# Virtual disk size (automatically expands, but set a max)
+# Default: 256GB
+# swap=4GB
+
+# Enable localhost port forwarding
+localhostForwarding=true
+
+# Use network mirroring (Windows 11 22H2+)
+# networkingMode=mirrored
+
+# Enable debug console
+# debugConsole=true
+
+[interop]
+# Enable .exe interoperability
+enabled=true
+
+# Append Windows PATH to WSL PATH
+appendWindowsPath=true
+
+[user]
+# Default user to login as (optional)
+# default=username
+
+[boot]
+# Systemd support (Ubuntu 22.04+)
+# systemd=true
+
+
+################################################################################
+#                          PERFORMANCE TUNING NOTES
+################################################################################
+
+# For maximum performance with Zen 5 kernel:
+
+# 1. Memory: Set to 60-80% of your Windows RAM for optimal performance
+#    Example on 16GB Windows: memory=10GB or memory=12GB
+
+# 2. Processors: Use all available cores for parallel tasks
+#    Example on 8-core system: processors=8
+
+# 3. Swap: Keep some swap space for emergencies
+#    swap=4GB or swap=8GB
+
+# 4. Network Mode: Use mirrored networking (Windows 11 22H2+)
+#    Provides better network performance and simpler IP management
+
+# 5. Additional runtime tuning in WSL:
+#    - Disable unnecessary services: sudo systemctl disable <service>
+#    - Adjust swappiness: echo vm.swappiness=10 | sudo tee /etc/sysctl.conf
+#    - Use BFQ I/O scheduler (if available)
+
+
+################################################################################
+#                           EXAMPLE CONFIGURATIONS
+################################################################################
+
+# --- MINIMAL (for VMs with limited resources) ---
+# [wsl2]
+# kernel=C:\Users\YourUsername\WSL-Kernels\bzImage-latest
+# memory=2GB
+# processors=2
+# swap=2GB
+
+# --- STANDARD (recommended for most users) ---
+# [wsl2]
+# kernel=C:\Users\YourUsername\WSL-Kernels\bzImage-latest
+# memory=8GB
+# processors=8
+# swap=4GB
+# localhostForwarding=true
+
+# --- HIGH PERFORMANCE (for powerful machines) ---
+# [wsl2]
+# kernel=C:\Users\YourUsername\WSL-Kernels\bzImage-latest
+# memory=16GB
+# processors=16
+# swap=8GB
+# localhostForwarding=true
+# networkingMode=mirrored
+
+# --- DEVELOPMENT (optimized for development work) ---
+# [wsl2]
+# kernel=C:\Users\YourUsername\WSL-Kernels\bzImage-latest
+# memory=10GB
+# processors=12
+# swap=6GB
+# localhostForwarding=true
+# debugConsole=true
+
+
+################################################################################
+#                              TROUBLESHOOTING
+################################################################################
+
+# If WSL won't start after adding custom kernel:
+# 1. Comment out the kernel line
+# 2. Run: wsl --shutdown
+# 3. Restart WSL
+# 4. Check kernel file exists: dir C:\Users\YourUsername\WSL-Kernels
+# 5. Check Windows Event Viewer for errors
+# 6. Try: wsl --update
+
+# If you get "Not enough memory" errors:
+# 1. Reduce the memory setting
+# 2. Close other applications
+# 3. Increase swap space
+
+# If network is slow:
+# 1. Check if network mode is set correctly
+# 2. Test: time curl https://www.google.com
+# 3. Monitor with: watch -n 1 'ifstat'
+
+# For detailed diagnostics:
+# 1. Run in PowerShell: Get-Service -Name LxssManager | Restart-Service
+# 2. Check WSL version: wsl --version
+# 3. List installations: wsl --list --verbose
+
+
+################################################################################
+#                           FURTHER OPTIMIZATION
+################################################################################
+
+# After setting up the kernel and this config, optimize within WSL:
+
+# Edit /etc/sysctl.conf as root:
+# sudo nano /etc/sysctl.conf
+
+# Add these performance tuning options:
+#
+# # Networking
+# net.ipv4.tcp_tw_reuse=1
+# net.ipv4.tcp_timestamps=0
+# net.ipv4.tcp_fast_open=3
+# net.core.somaxconn=4096
+#
+# # CPU Scheduling
+# kernel.sched_migration_cost_ns=500000
+#
+# # Memory
+# vm.swappiness=10
+# vm.vfs_cache_pressure=50
+#
+# Then apply: sudo sysctl -p
+
+# For I/O optimization, set scheduler to BFQ:
+# sudo nano /etc/udev/rules.d/90-io-scheduler.rules
+# Add: ACTION=="add|change", KERNEL=="sd*", ATTR{queue/scheduler}="bfq"
+
+################################################################################
