@@ -1,0 +1,112 @@
+# Kernel Config Fragment for AMD gfx1151 (Strix Halo / RDNA 3.5)
+#
+# Apply with: scripts/kconfig/merge_config.sh .config kconfig-gfx1151.fragment
+#
+
+#
+# AMD GPU Driver (AMDGPU)
+#
+CONFIG_DRM=y
+CONFIG_DRM_AMDGPU=m
+CONFIG_DRM_AMDGPU_SI=y
+CONFIG_DRM_AMDGPU_CIK=y
+CONFIG_DRM_AMDGPU_USERPTR=y
+
+# AMD Display Core (required for RDNA 3.5)
+CONFIG_DRM_AMD_DC=y
+CONFIG_DRM_AMD_DC_FP=y
+CONFIG_DRM_AMD_DC_SI=y
+
+# AMD Audio/ISP (Strix Halo has integrated audio)
+CONFIG_DRM_AMD_ACP=y
+CONFIG_DRM_AMD_ISP=y
+
+#
+# HSA / ROCm Support (required for GPU compute)
+#
+CONFIG_HSA_AMD=y
+CONFIG_HSA_AMD_SVM=y
+
+#
+# AMD P-State Driver (Zen 5 power management)
+#
+CONFIG_X86_AMD_PSTATE=y
+CONFIG_X86_AMD_PSTATE_UT=m
+CONFIG_X86_AMD_PSTATE_DEFAULT_MODE=3
+
+#
+# Hyper-V / WSL2 Support
+#
+CONFIG_HYPERV=y
+CONFIG_HYPERV_TIMER=y
+CONFIG_HYPERV_UTILS=y
+CONFIG_HYPERV_BALLOON=y
+CONFIG_HYPERVISOR_GUEST=y
+CONFIG_PARAVIRT=y
+CONFIG_PARAVIRT_XXL=y
+CONFIG_X86_HV_CALLBACK_VECTOR=y
+
+# dxgkrnl for GPU passthrough (if patched kernel)
+CONFIG_DXGKRNL=m
+
+# Hyper-V sockets (WSL2 networking)
+CONFIG_VSOCKETS=y
+CONFIG_VSOCKETS_DIAG=y
+CONFIG_HYPERV_VSOCKETS=y
+
+#
+# Memory Management (128GB unified memory)
+#
+CONFIG_TRANSPARENT_HUGEPAGE=y
+CONFIG_TRANSPARENT_HUGEPAGE_MADVISE=y
+CONFIG_KSM=y
+CONFIG_MEMORY_FAILURE=y
+CONFIG_ARCH_SUPPORTS_MEMORY_FAILURE=y
+
+# Large memory support
+CONFIG_ZONE_DMA=y
+CONFIG_ZONE_DMA32=y
+CONFIG_ZONE_DEVICE=y
+CONFIG_HMM_MIRROR=y
+CONFIG_DEVICE_PRIVATE=y
+
+#
+# Zen 5 CPU Optimizations
+#
+CONFIG_MZEN5=y
+CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+CONFIG_SCHED_MC=y
+CONFIG_SCHED_SMT=y
+
+# Modern scheduler features
+CONFIG_SCHED_CORE=y
+CONFIG_CFS_BANDWIDTH=y
+
+#
+# Performance Features
+#
+CONFIG_IO_URING=y
+CONFIG_PREEMPT=y
+CONFIG_HZ_1000=y
+CONFIG_NO_HZ_FULL=y
+
+#
+# 9P Filesystem (for /mnt/c - Plan 9 protocol)
+#
+CONFIG_NET_9P=y
+CONFIG_NET_9P_VIRTIO=y
+CONFIG_9P_FS=y
+CONFIG_9P_FS_POSIX_ACL=y
+CONFIG_NETWORK_FILESYSTEMS=y
+
+#
+# Disable unnecessary for WSL2 (saves build time)
+#
+# CONFIG_SOUND is not set
+# CONFIG_USB_SUPPORT is not set
+# CONFIG_WIRELESS is not set
+# CONFIG_WLAN is not set
+# CONFIG_BLUETOOTH is not set
+# CONFIG_INPUT_JOYSTICK is not set
+# CONFIG_INPUT_TABLET is not set
+# CONFIG_INPUT_TOUCHSCREEN is not set

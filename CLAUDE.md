@@ -126,6 +126,19 @@ pip install .
 - Microsoft's WSL2 kernel is behind mainline; `build-zen5-kernel.sh` provides Zen 5 CPU optimizations but GPU support depends on driver updates
 - ROCm official gfx1151 support expected first half of 2026
 
+### Fixing Kernel GPU Support (Advanced)
+To get full gfx1151 AMDGPU support before Microsoft updates their kernel:
+```bash
+# Build mainline kernel with dxgkrnl patches + gfx1151 AMDGPU
+./tools/strix-turbo/build-mainline-wsl2-kernel.sh
+
+# This builds Linux 6.12+ with:
+# - Microsoft's dxgkrnl for GPU passthrough
+# - Full AMDGPU driver with gfx1151 support
+# - Zen 5 CPU optimizations
+```
+Note: Still requires Windows Adrenalin driver with WSL2 gfx1151 passthrough support.
+
 ## IPC Architecture
 
 `src/ipc/` contains lock-free primitives:
