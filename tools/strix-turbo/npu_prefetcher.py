@@ -15,7 +15,7 @@ Expected hit rate: 70-85% for build systems (highly predictable patterns)
 Expected speedup: 2-5x for workloads with sequential file access patterns
 
 Requirements:
-    - ROCm 6.0+ with XDNA support
+    - ROCm 7.2+ with XDNA support (gfx1151 for Strix Halo)
     - PyTorch 2.0+ with ROCm backend
     - onnxruntime-rocm for deployment
 

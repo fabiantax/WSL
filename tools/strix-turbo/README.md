@@ -15,6 +15,13 @@ This toolset helps you build a high-performance WSL2 kernel with:
 
 ## Features
 
+### ROCm 7.2 Integration (NEW)
+- ✅ Full ROCm 7.2 setup for Strix Halo (gfx1151)
+- ✅ llama.cpp with HIP/ROCm acceleration
+- ✅ vLLM for high-throughput inference
+- ✅ 128GB unified memory support
+- ✅ See `rocm/` directory for scripts
+
 ### Automated Checks & Setup
 - ✅ Dependency verification with installation suggestions
 - ✅ System requirements validation (disk space, cores)
@@ -397,6 +404,34 @@ Improvements and suggestions are welcome! Feel free to:
 
 ---
 
-**Last Updated**: January 31, 2026
+## ROCm 7.2 for AI Workloads
+
+The `rocm/` directory contains scripts for GPU-accelerated AI inference:
+
+```bash
+# 1. Install ROCm 7.2
+./rocm/setup-rocm72.sh
+
+# 2. Set up llama.cpp for local LLM inference
+./rocm/setup-llamacpp.sh
+
+# 3. Set up vLLM for high-throughput serving
+./rocm/setup-vllm.sh
+```
+
+### Supported Models (128GB Unified Memory)
+
+| Model | Size | Use Case |
+|-------|------|----------|
+| Llama 3.1 70B Q4_K_M | 40GB | General purpose |
+| Qwen2.5 72B Q4_K_M | 42GB | Coding assistant |
+| Mixtral 8x22B Q4_K_M | 80GB | Fast MoE |
+| DeepSeek-V2 236B Q2_K | 90GB | Large MoE |
+
+See `rocm/README.md` for detailed instructions.
+
+---
+
+**Last Updated**: February 1, 2026
 **Author**: Strix Turbo Development Team
 **Status**: Production Ready

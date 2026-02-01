@@ -129,7 +129,7 @@ AMD is actively welcoming contributors to TheRock. This is the easiest entry poi
 |-------|-------------|--------|
 | #4952 | WSL2 support for Ryzen AI Max+ 395 | Comment with our findings |
 | #5824 | Memory access faults on gfx1151 | Provide repro steps |
-| #5534 | ROCm 7.0.2 crashes on Strix Halo | Track |
+| #5534 | ROCm crashes on Strix Halo (fixed in 7.2) | Verify fix |
 | #5643 | hipBLASLt unsupported on gfx1151 | Offer to contribute |
 | #5750 | Stuck at low power/idle clocks | Track |
 | New | TheRock WSL2 build support | File and contribute |
