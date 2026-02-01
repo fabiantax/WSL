@@ -14,6 +14,10 @@ This is the **Windows Subsystem for Linux (WSL)** repository - the core Windows 
 ```powershell
 cmake .
 cmake --build . -- -m
+
+# ARM64 build
+cmake . -A arm64
+cmake --build . -- -m
 ```
 
 ### Deploy and Test
@@ -24,7 +28,7 @@ powershell tools\deploy\deploy-to-host.ps1  # Or use script
 
 ### Run Tests (30-60 minutes for full suite)
 ```powershell
-# Always do full build first
+# Always do full build first - partial builds cause test failures
 cmake --build . -- -m
 
 # Then run tests (requires admin)
@@ -53,9 +57,14 @@ clang-format -i --style=file <files>          # Apply
 
 ### Validation
 ```bash
-python3 tools/devops/validate-copyright-headers.py
+python3 tools/devops/validate-copyright-headers.py  # Ignore _deps/ warnings
 python3 distributions/validate.py distributions/DistributionInfo.json
 ```
+
+### Pre-commit Checklist
+1. `clang-format --dry-run --style=file` on changed C++ files
+2. `python3 tools/devops/validate-copyright-headers.py` (ignore _deps/)
+3. `mkdocs build -f doc/mkdocs.yml` if documentation changed
 
 ## Architecture
 
@@ -86,6 +95,7 @@ Located in `tools/strix-turbo/`:
 
 | Component | Purpose |
 |-----------|---------|
+| `rocm/` | ROCm 7.2 setup for gfx1151 (llama.cpp, vLLM) |
 | `parasitic_batch/` | LD_PRELOAD library for syscall batching via io_uring |
 | `npu_client/` | Python/C client for AMD XDNA NPU access from WSL2 |
 | `uring_batch.h/cpp` | io_uring batching framework (1000 syscalls → 1 VM exit) |
@@ -96,6 +106,11 @@ Located in `tools/strix-turbo/`:
 
 ### Build Strix-Turbo Components (Linux)
 ```bash
+# ROCm 7.2 setup for Strix Halo
+./tools/strix-turbo/rocm/setup-rocm72.sh
+./tools/strix-turbo/rocm/setup-llamacpp.sh
+./tools/strix-turbo/rocm/setup-vllm.sh
+
 # Parasitic batching library
 cd tools/strix-turbo/parasitic_batch
 make
@@ -105,6 +120,11 @@ make test
 cd tools/strix-turbo/npu_client/python
 pip install .
 ```
+
+### Known Limitations
+- WSL2 GPU passthrough for gfx1151 requires Windows Adrenalin driver with WSL2 support
+- Microsoft's WSL2 kernel is behind mainline; `build-zen5-kernel.sh` provides Zen 5 CPU optimizations but GPU support depends on driver updates
+- ROCm official gfx1151 support expected first half of 2026
 
 ## IPC Architecture
 
@@ -141,6 +161,7 @@ debugConsole=true
 - `doc/docs/technical-documentation/networking.md` - Network architecture
 - `tools/strix-turbo/PRIORITIZATION.md` - Performance work prioritization
 - `tools/strix-turbo/ARCHITECTURE_10X.md` - 10x performance architecture
+- `tools/strix-turbo/rocm/README.md` - ROCm 7.2 integration for AI workloads
 
 ## Timing Guidelines
 
