@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <cstring>
+#include <string>
 #include <algorithm>
 #include <mutex>
 

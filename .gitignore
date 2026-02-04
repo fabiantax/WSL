@@ -66,3 +66,25 @@ package/x64
 tools/clang-format.exe
 /linux-crashes
 doc/site/
+
+# Strix-turbo build artifacts and temp files
+tools/strix-turbo/test_bug
+tools/strix-turbo/parasitic_batch/bench_parasitic
+tools/strix-turbo/parasitic_batch/test_parasitic
+tools/strix-turbo/dxgkrnl-dkms-temp/
+tools/strix-turbo/kernel-build-ubuntu-hwe/
+tools/strix-turbo/wsl2-kernel-staging/
+tools/strix-turbo/wsl2-kernel-temp/
+tools/strix-turbo/logs/
+kernel-build.log
+
+# IDE and editor files
+WSL.code-workspace
+.claude/
+
+# Blog/social media drafts (not source)
+doc/docs/blog-medium-wsl2-performance.md
+doc/docs/linkedin-post-wsl2.md
+
+# Misc
+nul

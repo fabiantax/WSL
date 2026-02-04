@@ -25,6 +25,10 @@
 #include <memory>
 #include <atomic>
 #include <chrono>
+#include <mutex>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <linux/stat.h>
 
 // Forward declaration (actual liburing types in implementation)
 struct io_uring;
@@ -40,7 +44,7 @@ namespace uring {
 
 struct UringConfig {
     uint32_t queue_depth;           // SQ/CQ entries (default: 4096)
-    uint32_t sq_thread_cpu;         // Pin SQPOLL thread to CPU (-1 = no pin)
+    int32_t sq_thread_cpu;          // Pin SQPOLL thread to CPU (-1 = no pin)
     uint32_t sq_thread_idle_ms;     // SQPOLL idle timeout (default: 1000)
     bool use_sqpoll;                // Kernel-side submission polling
     bool use_iopoll;                // Busy-poll for completions
