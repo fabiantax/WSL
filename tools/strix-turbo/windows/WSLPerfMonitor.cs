@@ -11,6 +11,39 @@ using System.Windows.Forms;
 
 namespace WSLPerfMonitor
 {
+    static class Theme
+    {
+        public static readonly Color BgDark = Color.FromArgb(30, 30, 30);
+        public static readonly Color BgPanel = Color.FromArgb(45, 45, 48);
+        public static readonly Color BgControl = Color.FromArgb(51, 51, 55);
+        public static readonly Color Border = Color.FromArgb(67, 67, 70);
+        public static readonly Color FgText = Color.FromArgb(241, 241, 241);
+        public static readonly Color FgDim = Color.FromArgb(153, 153, 153);
+        public static readonly Color Accent = Color.FromArgb(0, 122, 204);
+        public static readonly Color ErrorBg = Color.FromArgb(70, 28, 28);
+        public static readonly Color WarningBg = Color.FromArgb(70, 58, 18);
+        public static readonly Color OkBg = Color.FromArgb(22, 55, 22);
+        public static readonly Color Danger = Color.FromArgb(200, 50, 50);
+
+        public static void StyleButton(Button btn, Color? bg = null)
+        {
+            btn.FlatStyle = FlatStyle.Flat;
+            btn.BackColor = bg ?? BgControl;
+            btn.ForeColor = FgText;
+            btn.FlatAppearance.BorderColor = Border;
+            btn.Cursor = Cursors.Hand;
+        }
+
+        public static string FormatBytes(long bytes)
+        {
+            if (bytes <= 0) return "-";
+            if (bytes < 1024) return $"{bytes} B";
+            if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F0} KB";
+            if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+            return $"{bytes / (1024.0 * 1024 * 1024):F1} GB";
+        }
+    }
+
     public class Program
     {
         [STAThread]
@@ -19,7 +52,6 @@ namespace WSLPerfMonitor
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            // Single instance check
             using var mutex = new Mutex(true, "WSLPerfMonitor_SingleInstance", out bool createdNew);
             if (!createdNew)
             {
@@ -48,7 +80,6 @@ namespace WSLPerfMonitor
         {
             _monitor = new WSLMonitor();
 
-            // Create context menu
             _contextMenu = new ContextMenuStrip();
             _contextMenu.Items.Add("Scan Now", null, OnScanNow);
             _contextMenu.Items.Add("Open Dashboard", null, OnOpenDashboard);
@@ -62,7 +93,6 @@ namespace WSLPerfMonitor
             _contextMenu.Items.Add("-");
             _contextMenu.Items.Add("Exit", null, OnExit);
 
-            // Create tray icon
             _trayIcon = new NotifyIcon
             {
                 Icon = CreateIcon(Color.Green),
@@ -72,12 +102,10 @@ namespace WSLPerfMonitor
             };
             _trayIcon.DoubleClick += OnOpenDashboard;
 
-            // Start monitoring timer
-            _monitorTimer = new System.Windows.Forms.Timer { Interval = 5000 }; // Check every 5 seconds
+            _monitorTimer = new System.Windows.Forms.Timer { Interval = 5000 };
             _monitorTimer.Tick += OnMonitorTick;
             _monitorTimer.Start();
 
-            // Initial scan
             Task.Run(() => PerformScan(showNotification: false));
         }
 
@@ -88,8 +116,6 @@ namespace WSLPerfMonitor
             {
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                 g.Clear(Color.Transparent);
-
-                // Draw "W" for WSL
                 using var brush = new SolidBrush(color);
                 using var font = new Font("Segoe UI", 10, FontStyle.Bold);
                 g.DrawString("W", font, brush, -1, 0);
@@ -108,21 +134,13 @@ namespace WSLPerfMonitor
             {
                 var issues = _monitor.Scan();
 
-                // Update icon based on status
                 if (issues.Any(i => i.Severity == IssueSeverity.Error))
-                {
                     UpdateIcon(Color.Red, $"WSL Performance Monitor\n{issues.Count} issues detected");
-                }
                 else if (issues.Any(i => i.Severity == IssueSeverity.Warning))
-                {
                     UpdateIcon(Color.Orange, $"WSL Performance Monitor\n{issues.Count} warnings");
-                }
                 else
-                {
                     UpdateIcon(Color.Green, "WSL Performance Monitor\nStatus: OK");
-                }
 
-                // Show notification for new issues
                 if (showNotification && issues.Any() && DateTime.Now - _lastWarning > _warningCooldown)
                 {
                     var topIssue = issues.OrderByDescending(i => i.Severity).First();
@@ -140,7 +158,6 @@ namespace WSLPerfMonitor
         {
             if (_trayIcon.Icon != null)
             {
-                // Dispose old icon to prevent handle leak
                 var oldIcon = _trayIcon.Icon;
                 _trayIcon.Icon = CreateIcon(color);
                 oldIcon.Dispose();
@@ -150,12 +167,9 @@ namespace WSLPerfMonitor
 
         private void ShowBalloon(PerformanceIssue issue)
         {
-            _trayIcon.ShowBalloonTip(
-                5000,
-                "WSL Performance Warning",
+            _trayIcon.ShowBalloonTip(5000, "WSL Performance Warning",
                 $"{issue.Message}\n\nClick for suggestions.",
-                issue.Severity == IssueSeverity.Error ? ToolTipIcon.Error : ToolTipIcon.Warning
-            );
+                issue.Severity == IssueSeverity.Error ? ToolTipIcon.Error : ToolTipIcon.Warning);
         }
 
         private void OnScanNow(object sender, EventArgs e)
@@ -198,21 +212,14 @@ namespace WSLPerfMonitor
             {
                 var projectPath = dialog.SelectedPath;
                 var projectName = Path.GetFileName(projectPath);
-
                 var result = MessageBox.Show(
                     $"Migrate '{projectName}' to WSL Linux filesystem?\n\n" +
-                    $"From: {projectPath}\n" +
-                    $"To: ~/projects/{projectName}\n\n" +
+                    $"From: {projectPath}\nTo: ~/projects/{projectName}\n\n" +
                     "This will copy the project and create a symlink back to Windows.",
-                    "Migrate Project",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Question
-                );
+                    "Migrate Project", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
 
                 if (result == DialogResult.Yes)
-                {
                     MigrateProject(projectPath, projectName);
-                }
             }
         }
 
@@ -223,17 +230,11 @@ namespace WSLPerfMonitor
                 var destPath = $"~/projects/{projectName}";
                 var command = $"mkdir -p ~/projects && cp -r \"{ToWslPath(sourcePath)}\" {destPath} && " +
                              $"ln -sf {destPath} \"/mnt/c/Users/{Environment.UserName}/wsl-projects/{projectName}\"";
-
                 RunWslCommand(command);
-
                 MessageBox.Show(
-                    $"Project migrated successfully!\n\n" +
-                    $"Location: {destPath}\n" +
+                    $"Project migrated successfully!\n\nLocation: {destPath}\n" +
                     $"Windows access: C:\\Users\\{Environment.UserName}\\wsl-projects\\{projectName}",
-                    "Migration Complete",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information
-                );
+                    "Migration Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
@@ -245,9 +246,7 @@ namespace WSLPerfMonitor
         {
             using var form = new NewProjectForm();
             if (form.ShowDialog() == DialogResult.OK)
-            {
                 CreateNewProject(form.ProjectName, form.Template);
-            }
         }
 
         private void CreateNewProject(string name, string template)
@@ -264,18 +263,13 @@ namespace WSLPerfMonitor
                     _ => $"mkdir -p ~/projects/{name}"
                 };
 
-                // Also create Windows symlink
                 command += $" && mkdir -p /mnt/c/Users/{Environment.UserName}/wsl-projects && " +
                           $"ln -sf ~/projects/{name} /mnt/c/Users/{Environment.UserName}/wsl-projects/{name}";
-
                 RunWslCommand(command);
 
                 var result = MessageBox.Show(
                     $"Project created at ~/projects/{name}\n\nOpen in VS Code?",
-                    "Project Created",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Information
-                );
+                    "Project Created", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
 
                 if (result == DialogResult.Yes)
                 {
@@ -297,9 +291,7 @@ namespace WSLPerfMonitor
         {
             _warningsEnabled = !_warningsEnabled;
             if (sender is ToolStripMenuItem item)
-            {
                 item.Checked = _warningsEnabled;
-            }
         }
 
         private void OnSettings(object sender, EventArgs e)
@@ -316,7 +308,6 @@ namespace WSLPerfMonitor
 
         private string ToWslPath(string windowsPath)
         {
-            // C:\Users\foo -> /mnt/c/Users/foo
             if (windowsPath.Length >= 2 && windowsPath[1] == ':')
             {
                 var drive = char.ToLower(windowsPath[0]);
@@ -370,6 +361,12 @@ namespace WSLPerfMonitor
         public string Suggestion { get; set; }
         public string Process { get; set; }
         public string Path { get; set; }
+        public string Pid { get; set; }
+        public List<string> Pids { get; set; } = new();
+        public long IoReadBytes { get; set; }
+        public long IoWriteBytes { get; set; }
+        public int Count { get; set; } = 1;
+        public bool IsZombie { get; set; }
     }
 
     public class WSLMonitor
@@ -377,20 +374,15 @@ namespace WSLPerfMonitor
         public List<PerformanceIssue> Scan()
         {
             var issues = new List<PerformanceIssue>();
-
             try
             {
-                // Check for processes with CWD on /mnt/*
                 issues.AddRange(CheckWslProcesses());
-
-                // Check for common slow patterns
                 issues.AddRange(CheckSlowPatterns());
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"Scan error: {ex.Message}");
             }
-
             return issues;
         }
 
@@ -400,7 +392,6 @@ namespace WSLPerfMonitor
 
             try
             {
-                // Get comprehensive process info: PID, cmd, elapsed, cpu%, mem%, state, tty, rss, ppid, start, cwd, cmdline
                 var psi = new ProcessStartInfo
                 {
                     FileName = "wsl",
@@ -410,7 +401,9 @@ namespace WSLPerfMonitor
                                "read cmd etimes pcpu pmem stat tty rss ppid < <(ps -p $pid -o comm=,etimes=,pcpu=,pmem=,stat=,tty=,rss=,ppid= --no-headers 2>/dev/null); " +
                                "start=$(ps -p $pid -o lstart= --no-headers 2>/dev/null); " +
                                "cmdline=$(tr '\\\\0' ' ' < /proc/$pid/cmdline 2>/dev/null | head -c 200); " +
-                               "echo \\\"$pid|$cmd|$etimes|$pcpu|$pmem|$stat|$tty|$rss|$ppid|$start|$cwd|$cmdline\\\"; done\"",
+                               "ior=$(awk '/^read_bytes:/{print $2}' /proc/$pid/io 2>/dev/null); " +
+                               "iow=$(awk '/^write_bytes:/{print $2}' /proc/$pid/io 2>/dev/null); " +
+                               "echo \\\"$pid|$cmd|$etimes|$pcpu|$pmem|$stat|$tty|$rss|$ppid|$start|$cwd|$cmdline|${ior:-0}|${iow:-0}\\\"; done\"",
                     RedirectStandardOutput = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
@@ -424,7 +417,6 @@ namespace WSLPerfMonitor
                 {
                     try
                     {
-                        // Parse: pid|cmd|etimes|pcpu|pmem|stat|tty|rss|ppid|start|cwd|cmdline
                         var parts = line.Split('|');
                         if (parts.Length < 11) continue;
 
@@ -441,42 +433,39 @@ namespace WSLPerfMonitor
                         var cwd = parts[10].Trim();
                         var cmdline = parts.Length > 11 ? parts[11].Trim() : "";
 
+                        long ioRead = 0, ioWrite = 0;
+                        if (parts.Length > 12) long.TryParse(parts[12].Trim(), out ioRead);
+                        if (parts.Length > 13) long.TryParse(parts[13].Trim(), out ioWrite);
+
                         if (!IsSlowPath(cwd)) continue;
 
-                        // Skip known legitimate long-running processes
                         bool isVSCode = cwd.Contains("Microsoft VS Code") ||
                                        cwd.Contains("vscode") ||
                                        cmdline.Contains(".vscode-server") ||
                                        cmdline.Contains("ms-vscode");
 
+                        if (isVSCode) continue;
+
                         var elapsed = TimeSpan.FromSeconds(elapsedSeconds);
 
-                        // Determine if this is actually stuck (not just long-running)
-                        bool isActuallyStuck = state.Contains("D") || // Uninterruptible sleep (stuck on I/O)
-                                              state.Contains("Z");    // Actual zombie
-
-                        // Determine if this looks like a forgotten/stuck task (not VS Code)
-                        bool isSuspiciousLongRunning = !isVSCode && elapsedSeconds > 300 && (
+                        bool isActuallyStuck = state.Contains("D") || state.Contains("Z");
+                        bool isSuspiciousLongRunning = elapsedSeconds > 300 && (
                                        cmdline.Contains("benchmark") ||
                                        cmdline.Contains("test") ||
                                        cmdline.Contains("batch") ||
                                        cmdline.Contains("LD_PRELOAD") ||
                                        cmdline.Contains("intensive") ||
                                        cmdline.Contains("validate"));
-
                         bool isZombie = isActuallyStuck || isSuspiciousLongRunning;
 
-                        // Format elapsed time
                         string elapsedDisplay = elapsed.TotalHours >= 1
                             ? $"{(int)elapsed.TotalHours}h {elapsed.Minutes}m"
                             : elapsed.TotalMinutes >= 1
                                 ? $"{elapsed.Minutes}m {elapsed.Seconds}s"
                                 : $"{elapsed.Seconds}s";
 
-                        // Format memory
                         string memDisplay = rssKb > 1024 ? $"{rssKb / 1024}MB" : $"{rssKb}KB";
 
-                        // State description
                         string stateDesc = state switch
                         {
                             var s when s.StartsWith("S") => "sleeping",
@@ -487,23 +476,14 @@ namespace WSLPerfMonitor
                             _ => state
                         };
 
-                        // Build detailed info with all context
                         var details = $"PID: {pid} | PPID: {ppid} | State: {stateDesc}\n" +
                                      $"CPU: {cpuStr}% | Mem: {memDisplay} ({memStr}%) | TTY: {tty}\n" +
-                                     $"Started: {startTime}\n" +
-                                     $"CWD: {cwd}";
+                                     $"Started: {startTime}\nCWD: {cwd}";
 
                         if (!string.IsNullOrEmpty(cmdline))
                         {
                             var cmdlineShort = cmdline.Length > 100 ? cmdline.Substring(0, 97) + "..." : cmdline;
                             details += $"\nCmd: {cmdlineShort}";
-                        }
-
-                        // VS Code processes on /mnt/c are expected, just informational
-                        if (isVSCode)
-                        {
-                            // Skip VS Code entirely - it's expected to access /mnt/c
-                            continue;
                         }
 
                         var severity = isZombie ? IssueSeverity.Error :
@@ -523,8 +503,13 @@ namespace WSLPerfMonitor
                             Message = message,
                             Details = details,
                             Suggestion = suggestion,
-                            Process = isZombie ? $"⚠{cmd}" : cmd,
-                            Path = cwd
+                            Process = cmd,
+                            Path = cwd,
+                            Pid = pid,
+                            Pids = new List<string> { pid },
+                            IoReadBytes = ioRead,
+                            IoWriteBytes = ioWrite,
+                            IsZombie = isZombie
                         });
                     }
                     catch { /* Skip malformed lines */ }
@@ -542,7 +527,6 @@ namespace WSLPerfMonitor
         {
             var issues = new List<PerformanceIssue>();
 
-            // Check for node_modules on Windows FS being accessed
             var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var commonPaths = new[]
             {
@@ -580,8 +564,7 @@ namespace WSLPerfMonitor
 
         private bool IsSlowPath(string path)
         {
-            return path.StartsWith("/mnt/") &&
-                   Regex.IsMatch(path, @"^/mnt/[a-zA-Z]/");
+            return path.StartsWith("/mnt/") && Regex.IsMatch(path, @"^/mnt/[a-zA-Z]/");
         }
     }
 
@@ -592,21 +575,30 @@ namespace WSLPerfMonitor
         public ScanResultsForm(WSLMonitor monitor)
         {
             Text = "WSL Performance Scan Results";
-            Size = new Size(600, 400);
+            Size = new Size(650, 420);
             StartPosition = FormStartPosition.CenterScreen;
+            BackColor = Theme.BgDark;
+            ForeColor = Theme.FgText;
 
             _listView = new ListView
             {
                 Dock = DockStyle.Fill,
                 View = View.Details,
-                FullRowSelect = true
+                FullRowSelect = true,
+                BackColor = Theme.BgDark,
+                ForeColor = Theme.FgText,
+                BorderStyle = BorderStyle.None,
+                OwnerDraw = true
             };
             _listView.Columns.Add("Severity", 70);
-            _listView.Columns.Add("Issue", 200);
+            _listView.Columns.Add("Issue", 250);
             _listView.Columns.Add("Details", 300);
 
-            // Context menu for copying
-            var listContextMenu = new ContextMenuStrip();
+            _listView.DrawColumnHeader += DrawDarkColumnHeader;
+            _listView.DrawItem += (s, e) => { e.DrawDefault = true; };
+            _listView.DrawSubItem += (s, e) => { e.DrawDefault = true; };
+
+            var listContextMenu = new ContextMenuStrip { BackColor = Theme.BgPanel, ForeColor = Theme.FgText };
             var copySelectedItem = new ToolStripMenuItem("Copy Selected", null, (s, e) => CopySelected());
             copySelectedItem.ShortcutKeys = Keys.Control | Keys.C;
             var copyAllItem = new ToolStripMenuItem("Copy All", null, (s, e) => CopyAll());
@@ -615,14 +607,9 @@ namespace WSLPerfMonitor
             listContextMenu.Items.Add(copyAllItem);
             _listView.ContextMenuStrip = listContextMenu;
 
-            // Enable keyboard shortcut
             _listView.KeyDown += (s, e) =>
             {
-                if (e.Control && e.KeyCode == Keys.C)
-                {
-                    CopySelected();
-                    e.Handled = true;
-                }
+                if (e.Control && e.KeyCode == Keys.C) { CopySelected(); e.Handled = true; }
             };
 
             var issues = monitor.Scan();
@@ -631,11 +618,12 @@ namespace WSLPerfMonitor
                 var item = new ListViewItem(issue.Severity.ToString());
                 item.SubItems.Add(issue.Message);
                 item.SubItems.Add(issue.Details ?? "");
+                item.ForeColor = Theme.FgText;
                 item.BackColor = issue.Severity switch
                 {
-                    IssueSeverity.Error => Color.MistyRose,
-                    IssueSeverity.Warning => Color.LemonChiffon,
-                    _ => Color.White
+                    IssueSeverity.Error => Theme.ErrorBg,
+                    IssueSeverity.Warning => Theme.WarningBg,
+                    _ => Theme.BgDark
                 };
                 _listView.Items.Add(item);
             }
@@ -645,19 +633,18 @@ namespace WSLPerfMonitor
                 var item = new ListViewItem("OK");
                 item.SubItems.Add("No performance issues detected");
                 item.SubItems.Add("All processes running on fast Linux filesystem");
-                item.BackColor = Color.Honeydew;
+                item.ForeColor = Theme.FgText;
+                item.BackColor = Theme.OkBg;
                 _listView.Items.Add(item);
             }
 
-            // Button panel
             var buttonPanel = new FlowLayoutPanel
             {
-                Dock = DockStyle.Bottom,
-                Height = 40,
-                Padding = new Padding(5),
-                FlowDirection = FlowDirection.RightToLeft
+                Dock = DockStyle.Bottom, Height = 40, Padding = new Padding(5),
+                FlowDirection = FlowDirection.RightToLeft, BackColor = Theme.BgPanel
             };
             var copyBtn = new Button { Text = "Copy All", Width = 80 };
+            Theme.StyleButton(copyBtn);
             copyBtn.Click += (s, e) => CopyAll();
             buttonPanel.Controls.Add(copyBtn);
 
@@ -665,18 +652,26 @@ namespace WSLPerfMonitor
             Controls.Add(buttonPanel);
         }
 
+        private void DrawDarkColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
+        {
+            using var brush = new SolidBrush(Theme.BgPanel);
+            e.Graphics.FillRectangle(brush, e.Bounds);
+            using var pen = new Pen(Theme.Border);
+            e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom);
+            e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+            var textBounds = new Rectangle(e.Bounds.X + 4, e.Bounds.Y, e.Bounds.Width - 8, e.Bounds.Height);
+            TextRenderer.DrawText(e.Graphics, e.Header.Text, Font, textBounds, Theme.FgText,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+        }
+
         private void CopySelected()
         {
             if (_listView.SelectedItems.Count == 0) return;
-
             var lines = new List<string>();
             foreach (ListViewItem item in _listView.SelectedItems)
             {
                 var cols = new List<string>();
-                foreach (ListViewItem.ListViewSubItem sub in item.SubItems)
-                {
-                    cols.Add(sub.Text);
-                }
+                foreach (ListViewItem.ListViewSubItem sub in item.SubItems) cols.Add(sub.Text);
                 lines.Add(string.Join("\t", cols));
             }
             Clipboard.SetText(string.Join(Environment.NewLine, lines));
@@ -684,19 +679,11 @@ namespace WSLPerfMonitor
 
         private void CopyAll()
         {
-            var lines = new List<string>();
-
-            // Add header
-            lines.Add("Severity\tIssue\tDetails");
-
-            // Add rows
+            var lines = new List<string> { "Severity\tIssue\tDetails" };
             foreach (ListViewItem item in _listView.Items)
             {
                 var cols = new List<string>();
-                foreach (ListViewItem.ListViewSubItem sub in item.SubItems)
-                {
-                    cols.Add(sub.Text);
-                }
+                foreach (ListViewItem.ListViewSubItem sub in item.SubItems) cols.Add(sub.Text);
                 lines.Add(string.Join("\t", cols));
             }
             Clipboard.SetText(string.Join(Environment.NewLine, lines));
@@ -708,16 +695,20 @@ namespace WSLPerfMonitor
         private readonly WSLMonitor _monitor;
         private readonly ListView _issueList;
         private readonly System.Windows.Forms.Timer _refreshTimer;
+        private readonly Button _killZombiesBtn;
+        private List<PerformanceIssue> _currentGrouped = new();
 
         public DashboardForm(WSLMonitor monitor)
         {
             _monitor = monitor;
             Text = "WSL Performance Dashboard";
-            Size = new Size(800, 500);
+            Size = new Size(950, 550);
             StartPosition = FormStartPosition.CenterScreen;
+            BackColor = Theme.BgDark;
+            ForeColor = Theme.FgText;
 
-            // Header panel
-            var headerPanel = new Panel { Dock = DockStyle.Top, Height = 60, BackColor = Color.FromArgb(45, 45, 48) };
+            // Header
+            var headerPanel = new Panel { Dock = DockStyle.Top, Height = 60, BackColor = Theme.BgPanel };
             var titleLabel = new Label
             {
                 Text = "WSL2 Performance Dashboard",
@@ -728,22 +719,31 @@ namespace WSLPerfMonitor
             };
             headerPanel.Controls.Add(titleLabel);
 
-            // Issue list
+            // Issue list with dark theme + owner-drawn headers
             _issueList = new ListView
             {
                 Dock = DockStyle.Fill,
                 View = View.Details,
                 FullRowSelect = true,
-                GridLines = true
+                GridLines = true,
+                BackColor = Theme.BgDark,
+                ForeColor = Theme.FgText,
+                BorderStyle = BorderStyle.None,
+                OwnerDraw = true
             };
-            _issueList.Columns.Add("", 30);
-            _issueList.Columns.Add("Process", 80);
-            _issueList.Columns.Add("Issue", 250);
-            _issueList.Columns.Add("Path", 300);
+            _issueList.Columns.Add("", 28);
+            _issueList.Columns.Add("Process", 90);
+            _issueList.Columns.Add("Issue", 200);
+            _issueList.Columns.Add("I/O", 130);
+            _issueList.Columns.Add("Path", 220);
             _issueList.Columns.Add("Suggestion", 200);
 
-            // Context menu for copying
-            var listContextMenu = new ContextMenuStrip();
+            _issueList.DrawColumnHeader += DrawDarkColumnHeader;
+            _issueList.DrawItem += (s, e) => { e.DrawDefault = true; };
+            _issueList.DrawSubItem += (s, e) => { e.DrawDefault = true; };
+
+            // Context menu
+            var listContextMenu = new ContextMenuStrip { BackColor = Theme.BgPanel, ForeColor = Theme.FgText };
             var copySelectedItem = new ToolStripMenuItem("Copy Selected", null, (s, e) => CopySelected());
             copySelectedItem.ShortcutKeys = Keys.Control | Keys.C;
             var copyAllItem = new ToolStripMenuItem("Copy All", null, (s, e) => CopyAll());
@@ -752,47 +752,43 @@ namespace WSLPerfMonitor
             listContextMenu.Items.Add(copyAllItem);
             _issueList.ContextMenuStrip = listContextMenu;
 
-            // Enable keyboard shortcut
             _issueList.KeyDown += (s, e) =>
             {
-                if (e.Control && e.KeyCode == Keys.C)
-                {
-                    CopySelected();
-                    e.Handled = true;
-                }
-                else if (e.Control && e.Shift && e.KeyCode == Keys.C)
-                {
-                    CopyAll();
-                    e.Handled = true;
-                }
+                if (e.Control && e.Shift && e.KeyCode == Keys.C) { CopyAll(); e.Handled = true; }
+                else if (e.Control && e.KeyCode == Keys.C) { CopySelected(); e.Handled = true; }
             };
 
             // Button panel
             var buttonPanel = new FlowLayoutPanel
             {
-                Dock = DockStyle.Bottom,
-                Height = 50,
-                Padding = new Padding(10),
-                FlowDirection = FlowDirection.RightToLeft
+                Dock = DockStyle.Bottom, Height = 50, Padding = new Padding(10),
+                FlowDirection = FlowDirection.RightToLeft, BackColor = Theme.BgPanel
             };
 
             var refreshBtn = new Button { Text = "Refresh", Width = 100 };
+            Theme.StyleButton(refreshBtn);
             refreshBtn.Click += (s, e) => RefreshIssues();
 
             var copyBtn = new Button { Text = "Copy All", Width = 100 };
+            Theme.StyleButton(copyBtn);
             copyBtn.Click += (s, e) => CopyAll();
 
+            _killZombiesBtn = new Button { Text = "\u2620 Kill All Zombies", Width = 150, Visible = false };
+            Theme.StyleButton(_killZombiesBtn, Theme.Danger);
+            _killZombiesBtn.Click += (s, e) => KillAllZombies();
+
             var migrateBtn = new Button { Text = "Migrate Selected", Width = 120 };
+            Theme.StyleButton(migrateBtn);
 
             buttonPanel.Controls.Add(refreshBtn);
             buttonPanel.Controls.Add(copyBtn);
+            buttonPanel.Controls.Add(_killZombiesBtn);
             buttonPanel.Controls.Add(migrateBtn);
 
             Controls.Add(_issueList);
             Controls.Add(buttonPanel);
             Controls.Add(headerPanel);
 
-            // Auto-refresh
             _refreshTimer = new System.Windows.Forms.Timer { Interval = 10000 };
             _refreshTimer.Tick += (s, e) => RefreshIssues();
             _refreshTimer.Start();
@@ -800,18 +796,26 @@ namespace WSLPerfMonitor
             RefreshIssues();
         }
 
+        private void DrawDarkColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
+        {
+            using var brush = new SolidBrush(Theme.BgPanel);
+            e.Graphics.FillRectangle(brush, e.Bounds);
+            using var pen = new Pen(Theme.Border);
+            e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom);
+            e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+            var textBounds = new Rectangle(e.Bounds.X + 4, e.Bounds.Y, e.Bounds.Width - 8, e.Bounds.Height);
+            TextRenderer.DrawText(e.Graphics, e.Header.Text, Font, textBounds, Theme.FgText,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+        }
+
         private void CopySelected()
         {
             if (_issueList.SelectedItems.Count == 0) return;
-
             var lines = new List<string>();
             foreach (ListViewItem item in _issueList.SelectedItems)
             {
                 var cols = new List<string>();
-                foreach (ListViewItem.ListViewSubItem sub in item.SubItems)
-                {
-                    cols.Add(sub.Text);
-                }
+                foreach (ListViewItem.ListViewSubItem sub in item.SubItems) cols.Add(sub.Text);
                 lines.Add(string.Join("\t", cols));
             }
             Clipboard.SetText(string.Join(Environment.NewLine, lines));
@@ -820,23 +824,13 @@ namespace WSLPerfMonitor
         private void CopyAll()
         {
             var lines = new List<string>();
-
-            // Add header
             var headers = new List<string>();
-            foreach (ColumnHeader col in _issueList.Columns)
-            {
-                headers.Add(col.Text);
-            }
+            foreach (ColumnHeader col in _issueList.Columns) headers.Add(col.Text);
             lines.Add(string.Join("\t", headers));
-
-            // Add rows
             foreach (ListViewItem item in _issueList.Items)
             {
                 var cols = new List<string>();
-                foreach (ListViewItem.ListViewSubItem sub in item.SubItems)
-                {
-                    cols.Add(sub.Text);
-                }
+                foreach (ListViewItem.ListViewSubItem sub in item.SubItems) cols.Add(sub.Text);
                 lines.Add(string.Join("\t", cols));
             }
             Clipboard.SetText(string.Join(Environment.NewLine, lines));
@@ -847,24 +841,130 @@ namespace WSLPerfMonitor
             _issueList.Items.Clear();
             var issues = _monitor.Scan();
 
-            foreach (var issue in issues)
+            // Group duplicate rows by (process name, path)
+            _currentGrouped = issues
+                .GroupBy(i => $"{i.Process}|{i.Path}")
+                .Select(g =>
+                {
+                    var first = g.First();
+                    var allPids = g.SelectMany(i => i.Pids.Any() ? i.Pids : new List<string> { i.Pid })
+                                   .Where(p => !string.IsNullOrEmpty(p)).ToList();
+                    var count = g.Count();
+                    return new PerformanceIssue
+                    {
+                        Severity = g.Max(i => i.Severity),
+                        Message = count > 1
+                            ? $"{count}x {first.Process} on /mnt/c"
+                            : first.Message,
+                        Details = first.Details,
+                        Suggestion = first.Suggestion,
+                        Process = count > 1 ? $"{count}x {first.Process}" : first.Process,
+                        Path = first.Path,
+                        Pid = first.Pid,
+                        Pids = allPids,
+                        IoReadBytes = g.Sum(i => i.IoReadBytes),
+                        IoWriteBytes = g.Sum(i => i.IoWriteBytes),
+                        Count = count,
+                        IsZombie = g.Any(i => i.IsZombie)
+                    };
+                })
+                .OrderByDescending(i => i.Severity)
+                .ThenByDescending(i => i.IoReadBytes + i.IoWriteBytes)
+                .ToList();
+
+            bool hasZombies = false;
+            foreach (var issue in _currentGrouped)
             {
-                var item = new ListViewItem(issue.Severity == IssueSeverity.Error ? "🔴" : "🟡");
+                if (issue.IsZombie) hasZombies = true;
+
+                var icon = issue.Severity == IssueSeverity.Error ? "\U0001F534" :
+                          issue.Severity == IssueSeverity.Warning ? "\U0001F7E1" : "\U0001F7E2";
+                if (issue.IsZombie) icon = "\u2620";
+
+                var item = new ListViewItem(icon);
                 item.SubItems.Add(issue.Process ?? "-");
                 item.SubItems.Add(issue.Message);
+
+                // I/O throughput column
+                var ioText = (issue.IoReadBytes > 0 || issue.IoWriteBytes > 0)
+                    ? $"R:{Theme.FormatBytes(issue.IoReadBytes)} W:{Theme.FormatBytes(issue.IoWriteBytes)}"
+                    : "-";
+                item.SubItems.Add(ioText);
+
                 item.SubItems.Add(issue.Path ?? "-");
                 item.SubItems.Add(issue.Suggestion ?? "-");
+
+                item.ForeColor = Theme.FgText;
+                item.BackColor = issue.Severity switch
+                {
+                    IssueSeverity.Error => Theme.ErrorBg,
+                    IssueSeverity.Warning => Theme.WarningBg,
+                    _ => Theme.BgDark
+                };
+
                 _issueList.Items.Add(item);
             }
 
-            if (!issues.Any())
+            // Show/hide Kill Zombies button
+            _killZombiesBtn.Visible = hasZombies;
+
+            if (!_currentGrouped.Any())
             {
-                var item = new ListViewItem("🟢");
+                var item = new ListViewItem("\U0001F7E2");
                 item.SubItems.Add("-");
                 item.SubItems.Add("No performance issues detected");
                 item.SubItems.Add("-");
+                item.SubItems.Add("-");
                 item.SubItems.Add("All good!");
+                item.ForeColor = Theme.FgText;
+                item.BackColor = Theme.OkBg;
                 _issueList.Items.Add(item);
+            }
+        }
+
+        private void KillAllZombies()
+        {
+            var zombiePids = _currentGrouped
+                .Where(i => i.IsZombie)
+                .SelectMany(i => i.Pids)
+                .Where(p => !string.IsNullOrEmpty(p))
+                .Distinct()
+                .ToList();
+
+            if (!zombiePids.Any())
+            {
+                MessageBox.Show("No zombie processes found.", "Kill Zombies",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var result = MessageBox.Show(
+                $"Kill {zombiePids.Count} zombie process(es)?\n\nPIDs: {string.Join(", ", zombiePids)}",
+                "Kill All Zombies", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+
+            if (result != DialogResult.Yes) return;
+
+            try
+            {
+                var pidList = string.Join(" ", zombiePids);
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "wsl",
+                    Arguments = $"-e bash -c \"kill -9 {pidList} 2>/dev/null; echo done\"",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = Process.Start(psi);
+                process?.WaitForExit(5000);
+
+                RefreshIssues();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to kill processes: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -887,40 +987,38 @@ namespace WSLPerfMonitor
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
+            BackColor = Theme.BgDark;
+            ForeColor = Theme.FgText;
 
-            var nameLabel = new Label { Text = "Project Name:", Location = new Point(20, 20), AutoSize = true };
-            var nameBox = new TextBox { Location = new Point(120, 17), Width = 240 };
+            var nameLabel = new Label { Text = "Project Name:", Location = new Point(20, 20), AutoSize = true, ForeColor = Theme.FgText };
+            var nameBox = new TextBox { Location = new Point(120, 17), Width = 240, BackColor = Theme.BgControl, ForeColor = Theme.FgText };
 
-            var templateLabel = new Label { Text = "Template:", Location = new Point(20, 55), AutoSize = true };
+            var templateLabel = new Label { Text = "Template:", Location = new Point(20, 55), AutoSize = true, ForeColor = Theme.FgText };
             var templateBox = new ComboBox
             {
-                Location = new Point(120, 52),
-                Width = 240,
-                DropDownStyle = ComboBoxStyle.DropDownList
+                Location = new Point(120, 52), Width = 240,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = Theme.BgControl, ForeColor = Theme.FgText
             };
             templateBox.Items.AddRange(new[] { "bare", "node", "python", "rust", "git" });
             templateBox.SelectedIndex = 0;
 
             var createBtn = new Button
             {
-                Text = "Create",
-                Location = new Point(200, 110),
-                Width = 80,
-                DialogResult = DialogResult.OK
+                Text = "Create", Location = new Point(200, 110), Width = 80, DialogResult = DialogResult.OK
             };
+            Theme.StyleButton(createBtn, Theme.Accent);
+
             var cancelBtn = new Button
             {
-                Text = "Cancel",
-                Location = new Point(290, 110),
-                Width = 80,
-                DialogResult = DialogResult.Cancel
+                Text = "Cancel", Location = new Point(290, 110), Width = 80, DialogResult = DialogResult.Cancel
             };
+            Theme.StyleButton(cancelBtn);
 
             createBtn.Click += (s, e) =>
             {
                 ProjectName = nameBox.Text.Trim();
                 Template = templateBox.SelectedItem?.ToString() ?? "bare";
-
                 if (string.IsNullOrEmpty(ProjectName))
                 {
                     MessageBox.Show("Please enter a project name.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
