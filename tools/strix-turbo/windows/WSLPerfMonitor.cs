@@ -443,16 +443,28 @@ namespace WSLPerfMonitor
 
                         if (!IsSlowPath(cwd)) continue;
 
+                        // Skip known legitimate long-running processes
+                        bool isVSCode = cwd.Contains("Microsoft VS Code") ||
+                                       cwd.Contains("vscode") ||
+                                       cmdline.Contains(".vscode-server") ||
+                                       cmdline.Contains("ms-vscode");
+
                         var elapsed = TimeSpan.FromSeconds(elapsedSeconds);
 
-                        // Determine if this is likely a zombie/stuck process
-                        bool isZombie = elapsedSeconds > 300 || // > 5 minutes
+                        // Determine if this is actually stuck (not just long-running)
+                        bool isActuallyStuck = state.Contains("D") || // Uninterruptible sleep (stuck on I/O)
+                                              state.Contains("Z");    // Actual zombie
+
+                        // Determine if this looks like a forgotten/stuck task (not VS Code)
+                        bool isSuspiciousLongRunning = !isVSCode && elapsedSeconds > 300 && (
                                        cmdline.Contains("benchmark") ||
                                        cmdline.Contains("test") ||
                                        cmdline.Contains("batch") ||
                                        cmdline.Contains("LD_PRELOAD") ||
-                                       state.Contains("D") || // Uninterruptible sleep
-                                       state.Contains("Z");   // Zombie
+                                       cmdline.Contains("intensive") ||
+                                       cmdline.Contains("validate"));
+
+                        bool isZombie = isActuallyStuck || isSuspiciousLongRunning;
 
                         // Format elapsed time
                         string elapsedDisplay = elapsed.TotalHours >= 1
@@ -485,6 +497,13 @@ namespace WSLPerfMonitor
                         {
                             var cmdlineShort = cmdline.Length > 100 ? cmdline.Substring(0, 97) + "..." : cmdline;
                             details += $"\nCmd: {cmdlineShort}";
+                        }
+
+                        // VS Code processes on /mnt/c are expected, just informational
+                        if (isVSCode)
+                        {
+                            // Skip VS Code entirely - it's expected to access /mnt/c
+                            continue;
                         }
 
                         var severity = isZombie ? IssueSeverity.Error :
