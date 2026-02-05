@@ -400,10 +400,11 @@ namespace WSLPerfMonitor
 
             try
             {
+                // Get process info including PID, start time, elapsed time, command, and CWD
                 var psi = new ProcessStartInfo
                 {
                     FileName = "wsl",
-                    Arguments = "-e bash -c \"for pid in $(pgrep -x 'bash|zsh|node|npm|git|python|cargo|rustc|gcc|g++|make' 2>/dev/null | head -10); do cwd=$(readlink /proc/$pid/cwd 2>/dev/null); cmd=$(ps -p $pid -o comm= 2>/dev/null); echo \\\"$cmd:$cwd\\\"; done\"",
+                    Arguments = "-e bash -c \"for pid in $(pgrep -x 'bash|zsh|node|npm|git|python|cargo|rustc|gcc|g++|make' 2>/dev/null | head -20); do cwd=$(readlink /proc/$pid/cwd 2>/dev/null); cmd=$(ps -p $pid -o comm= 2>/dev/null); elapsed=$(ps -p $pid -o etimes= 2>/dev/null | tr -d ' '); cmdline=$(tr '\\\\0' ' ' < /proc/$pid/cmdline 2>/dev/null | head -c 100); echo \\\"$pid|$cmd|$elapsed|$cwd|$cmdline\\\"; done\"",
                     RedirectStandardOutput = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
@@ -415,25 +416,58 @@ namespace WSLPerfMonitor
 
                 foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
                 {
-                    var parts = line.Split(':', 2);
-                    if (parts.Length == 2)
+                    var parts = line.Split('|', 5);
+                    if (parts.Length >= 4)
                     {
-                        var cmd = parts[0].Trim();
-                        var cwd = parts[1].Trim();
+                        var pid = parts[0].Trim();
+                        var cmd = parts[1].Trim();
+                        var elapsedStr = parts[2].Trim();
+                        var cwd = parts[3].Trim();
+                        var cmdline = parts.Length > 4 ? parts[4].Trim() : "";
 
-                        if (IsSlowPath(cwd))
+                        if (!IsSlowPath(cwd)) continue;
+
+                        // Parse elapsed time (in seconds)
+                        int.TryParse(elapsedStr, out int elapsedSeconds);
+                        var elapsed = TimeSpan.FromSeconds(elapsedSeconds);
+
+                        // Determine if this is likely a zombie (running > 5 min, or has benchmark/test in cmdline)
+                        bool isZombie = elapsedSeconds > 300 || // > 5 minutes
+                                       cmdline.Contains("benchmark") ||
+                                       cmdline.Contains("test") ||
+                                       cmdline.Contains("batch") ||
+                                       cmdline.Contains("LD_PRELOAD");
+
+                        // Format elapsed time
+                        string elapsedDisplay = elapsed.TotalHours >= 1
+                            ? $"{elapsed.Hours}h {elapsed.Minutes}m"
+                            : elapsed.TotalMinutes >= 1
+                                ? $"{elapsed.Minutes}m {elapsed.Seconds}s"
+                                : $"{elapsed.Seconds}s";
+
+                        // Truncate cmdline for display
+                        string cmdlineShort = cmdline.Length > 60 ? cmdline.Substring(0, 57) + "..." : cmdline;
+
+                        var severity = isZombie ? IssueSeverity.Error :
+                                      (cmd is "git" or "npm" or "node" or "cargo" or "rustc" ? IssueSeverity.Error : IssueSeverity.Warning);
+
+                        var message = isZombie
+                            ? $"ZOMBIE: {cmd} stuck for {elapsedDisplay}"
+                            : $"{cmd} on slow path ({elapsedDisplay})";
+
+                        var suggestion = isZombie
+                            ? $"Kill with: wsl -e kill -9 {pid}"
+                            : "Move project to ~/projects/ for 10-100x faster I/O";
+
+                        issues.Add(new PerformanceIssue
                         {
-                            issues.Add(new PerformanceIssue
-                            {
-                                Severity = cmd is "git" or "npm" or "node" or "cargo" or "rustc"
-                                    ? IssueSeverity.Error : IssueSeverity.Warning,
-                                Message = $"{cmd} running on slow Windows path",
-                                Details = $"Working directory: {cwd}",
-                                Suggestion = "Move project to ~/projects/ for 10-100x faster I/O",
-                                Process = cmd,
-                                Path = cwd
-                            });
-                        }
+                            Severity = severity,
+                            Message = message,
+                            Details = string.IsNullOrEmpty(cmdlineShort) ? cwd : $"{cwd}\n{cmdlineShort}",
+                            Suggestion = suggestion,
+                            Process = isZombie ? $"⚠{cmd}" : cmd,
+                            Path = cwd
+                        });
                     }
                 }
             }
