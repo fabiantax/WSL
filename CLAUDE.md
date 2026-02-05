@@ -121,10 +121,34 @@ cd tools/strix-turbo/npu_client/python
 pip install .
 ```
 
+### VirtioFS Performance Optimization
+
+**CRITICAL**: Always use **64K block size** for optimal VirtioFS performance:
+
+```bash
+# WRONG: 1M blocks = 194 MB/s
+dd if=/mnt/c/file of=/dev/null bs=1M
+
+# CORRECT: 64K blocks = 429 MB/s (2.2x faster)
+dd if=/mnt/c/file of=/dev/null bs=64K
+rsync --block-size=65536 /mnt/c/src /home/user/
+```
+
+**Root Cause**: VirtioFS lacks DAX (Direct Access) capability in Windows WSL2, causing FUSE protocol overhead. Block size 64K minimizes round-trips while avoiding IOPS bottleneck.
+
+**Performance Summary**:
+- Sequential read (64K): 429 MB/s
+- Sequential read (1M): 194 MB/s (55% slower)
+- Sequential read (4K): 31.8 MB/s (IOPS-limited)
+- Native Linux tmpfs: 6.6 GB/s (15x faster than VirtioFS)
+
+See `docs/VIRTIOFS_READ_INVESTIGATION.md` for detailed analysis.
+
 ### Known Limitations
 - WSL2 GPU passthrough for gfx1151 requires Windows Adrenalin driver with WSL2 support
 - Microsoft's WSL2 kernel is behind mainline; `build-zen5-kernel.sh` provides Zen 5 CPU optimizations but GPU support depends on driver updates
 - ROCm official gfx1151 support expected first half of 2026
+- **VirtioFS DAX disabled**: Windows host doesn't expose DAX capability, limiting performance to ~400 MB/s vs 2+ GB/s with DAX
 
 ### Fixing Kernel GPU Support (Advanced)
 To get full gfx1151 AMDGPU support before Microsoft updates their kernel:
@@ -182,3 +206,98 @@ Never cancel these operations:
 - Full Windows build: 20-45 min (timeout: 60+ min)
 - Full test suite: 30-60 min (timeout: 90+ min)
 - Test subset: 5-15 min (timeout: 30+ min)
+
+---
+
+# Claude Code Configuration - Claude Flow V3
+
+## Behavioral Rules (Always Enforced - Claude Flow)
+
+- Do what has been asked; nothing more, nothing less
+- NEVER create files unless they're absolutely necessary for achieving your goal
+- ALWAYS prefer editing an existing file to creating a new one
+- NEVER proactively create documentation files (*.md) or README files unless explicitly requested
+- NEVER save working files, text/mds, or tests to the root folder
+- Never continuously check status after spawning a swarm — wait for results
+- ALWAYS read a file before editing it
+- NEVER commit secrets, credentials, or .env files
+
+## File Organization (Claude Flow)
+
+- NEVER save to root folder — use the directories below
+- Use `/src` for source code files
+- Use `/tests` for test files
+- Use `/docs` for documentation and markdown files
+- Use `/config` for configuration files
+- Use `/scripts` for utility scripts
+- Use `/examples` for example code
+
+## Project Architecture (Claude Flow)
+
+- Follow Domain-Driven Design with bounded contexts
+- Keep files under 500 lines
+- Use typed interfaces for all public APIs
+- Prefer TDD London School (mock-first) for new code
+- Use event sourcing for state changes
+- Ensure input validation at system boundaries
+
+### Project Config
+
+- **Topology**: hierarchical-mesh
+- **Max Agents**: 15
+- **Memory**: hybrid
+- **HNSW**: Enabled
+- **Neural**: Enabled
+
+## Security Rules (Claude Flow)
+
+- NEVER hardcode API keys, secrets, or credentials in source files
+- NEVER commit .env files or any file containing secrets
+- Always validate user input at system boundaries
+- Always sanitize file paths to prevent directory traversal
+- Run `npx @claude-flow/cli@latest security scan` after security-related changes
+
+## Concurrency: 1 MESSAGE = ALL RELATED OPERATIONS
+
+- All operations MUST be concurrent/parallel in a single message
+- Use Claude Code's Task tool for spawning agents, not just MCP
+- ALWAYS batch ALL todos in ONE TodoWrite call (5-10+ minimum)
+- ALWAYS spawn ALL agents in ONE message with full instructions via Task tool
+- ALWAYS batch ALL file reads/writes/edits in ONE message
+- ALWAYS batch ALL Bash commands in ONE message
+
+## Swarm Orchestration
+
+- MUST initialize the swarm using CLI tools when starting complex tasks
+- MUST spawn concurrent agents using Claude Code's Task tool
+- Never use CLI tools alone for execution — Task tool agents do the actual work
+- MUST call CLI tools AND Task tool in ONE message for complex work
+
+### 3-Tier Model Routing (ADR-026)
+
+| Tier | Handler | Latency | Cost | Use Cases |
+|------|---------|---------|------|-----------|
+| **1** | Agent Booster (WASM) | <1ms | $0 | Simple transforms (var→const, add types) — Skip LLM |
+| **2** | Haiku | ~500ms | $0.0002 | Simple tasks, low complexity (<30%) |
+| **3** | Sonnet/Opus | 2-5s | $0.003-0.015 | Complex reasoning, architecture, security (>30%) |
+
+- Always check for `[AGENT_BOOSTER_AVAILABLE]` or `[TASK_MODEL_RECOMMENDATION]` before spawning agents
+- Use Edit tool directly when `[AGENT_BOOSTER_AVAILABLE]`
+
+## Swarm Configuration & Anti-Drift
+
+- ALWAYS use hierarchical topology for coding swarms
+- Keep maxAgents at 6-8 for tight coordination
+- Use specialized strategy for clear role boundaries
+- Use `raft` consensus for hive-mind (leader maintains authoritative state)
+- Run frequent checkpoints via `post-task` hooks
+- Keep shared memory namespace for all agents
+
+- Claude Code's Task tool handles ALL execution: agents, file ops, code generation, git
+- CLI tools handle coordination via Bash: swarm init, memory, hooks, routing
+- NEVER use CLI tools as a substitute for Task tool agents
+
+## Support
+
+- Claude Flow Documentation: https://github.com/ruvnet/claude-flow
+- Claude Flow Issues: https://github.com/ruvnet/claude-flow/issues

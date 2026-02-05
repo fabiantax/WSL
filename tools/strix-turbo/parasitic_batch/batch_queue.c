@@ -253,110 +253,20 @@ static strix_batch_op_t* alloc_op(strix_batch_queue_t* queue) {
     return op;
 }
 
-static int maybe_flush_and_wait(strix_batch_queue_t* queue, bool sync) {
-    if (!sync) return 0;
+/* REMOVED - This function was causing immediate flushes.
+ * Batching logic moved to individual queue functions. */
 
-    /* Submit batch */
-    if (queue->count > 0) {
-        int ret = strix_queue_submit_and_wait(queue);
-        if (ret < 0) return ret;
-    }
-    return 0;
-}
 
 int strix_queue_read(int fd, void* buf, size_t count, bool sync) {
-    if (!strix_is_enabled()) {
-        return strix_sync_read(fd, buf, count);
-    }
-
-    strix_batch_queue_t* queue = strix_queue_get();
-    if (!queue) {
-        return strix_sync_read(fd, buf, count);
-    }
-
-    /* Auto-flush if needed */
-    if (strix_queue_should_flush(queue)) {
-        strix_queue_submit(queue);
-    }
-
-    strix_batch_op_t* op = alloc_op(queue);
-    if (!op) {
-        /* Queue full, flush and retry */
-        strix_queue_submit_and_wait(queue);
-        op = alloc_op(queue);
-        if (!op) {
-            return strix_sync_read(fd, buf, count);
-        }
-    }
-
-    op->type = STRIX_OP_READ;
-    op->fd = fd;
-    op->buf = buf;
-    op->len = count;
-    op->offset = -1;  /* Use current position */
-    op->sync_required = sync;
-
-    /* Prep io_uring SQE */
-    int ret = strix_uring_prep_read(queue->uring, op);
-    if (ret < 0) {
-        queue->count--;  /* Rollback */
-        queue->stats.sync_fallbacks++;
-        return strix_sync_read(fd, buf, count);
-    }
-
-    if (sync) {
-        ret = maybe_flush_and_wait(queue, true);
-        if (ret < 0) return ret;
-        return op->result;
-    }
-
-    return 0;  /* Async - will complete later */
+    /* READ CANNOT BE BATCHED - caller needs data immediately */
+    (void)sync;
+    return strix_sync_read(fd, buf, count);
 }
 
 int strix_queue_pread(int fd, void* buf, size_t count, off_t offset, bool sync) {
-    if (!strix_is_enabled()) {
-        return strix_sync_pread(fd, buf, count, offset);
-    }
-
-    strix_batch_queue_t* queue = strix_queue_get();
-    if (!queue) {
-        return strix_sync_pread(fd, buf, count, offset);
-    }
-
-    if (strix_queue_should_flush(queue)) {
-        strix_queue_submit(queue);
-    }
-
-    strix_batch_op_t* op = alloc_op(queue);
-    if (!op) {
-        strix_queue_submit_and_wait(queue);
-        op = alloc_op(queue);
-        if (!op) {
-            return strix_sync_pread(fd, buf, count, offset);
-        }
-    }
-
-    op->type = STRIX_OP_PREAD;
-    op->fd = fd;
-    op->buf = buf;
-    op->len = count;
-    op->offset = offset;
-    op->sync_required = sync;
-
-    int ret = strix_uring_prep_read(queue->uring, op);
-    if (ret < 0) {
-        queue->count--;
-        queue->stats.sync_fallbacks++;
-        return strix_sync_pread(fd, buf, count, offset);
-    }
-
-    if (sync) {
-        ret = maybe_flush_and_wait(queue, true);
-        if (ret < 0) return ret;
-        return op->result;
-    }
-
-    return 0;
+    /* PREAD CANNOT BE BATCHED - caller needs data immediately */
+    (void)sync;
+    return strix_sync_pread(fd, buf, count, offset);
 }
 
 int strix_queue_write(int fd, const void* buf, size_t count, bool sync) {
@@ -369,12 +279,9 @@ int strix_queue_write(int fd, const void* buf, size_t count, bool sync) {
         return strix_sync_write(fd, buf, count);
     }
 
-    if (strix_queue_should_flush(queue)) {
-        strix_queue_submit(queue);
-    }
-
     strix_batch_op_t* op = alloc_op(queue);
     if (!op) {
+        /* Queue full, flush and allocate again */
         strix_queue_submit_and_wait(queue);
         op = alloc_op(queue);
         if (!op) {
@@ -384,10 +291,10 @@ int strix_queue_write(int fd, const void* buf, size_t count, bool sync) {
 
     op->type = STRIX_OP_WRITE;
     op->fd = fd;
-    op->buf = (void*)buf;  /* Safe: we only read from it */
+    op->buf = (void*)buf;
     op->len = count;
     op->offset = -1;
-    op->sync_required = sync;
+    op->sync_required = false;  /* Write batching: do not wait */
 
     int ret = strix_uring_prep_write(queue->uring, op);
     if (ret < 0) {
@@ -396,14 +303,14 @@ int strix_queue_write(int fd, const void* buf, size_t count, bool sync) {
         return strix_sync_write(fd, buf, count);
     }
 
-    if (sync) {
-        ret = maybe_flush_and_wait(queue, true);
-        if (ret < 0) return ret;
-        queue->stats.total_bytes_written += op->result > 0 ? op->result : 0;
-        return op->result;
+    /* Check if we should flush the batch */
+    if (strix_queue_should_flush(queue)) {
+        STRIX_DEBUG("Flushing write batch of %zu operations", queue->count);
+        strix_queue_submit_and_wait(queue);
     }
 
-    return 0;
+    /* Return success immediately - actual write happens asynchronously */
+    return count;
 }
 
 int strix_queue_pwrite(int fd, const void* buf, size_t count, off_t offset, bool sync) {
@@ -414,10 +321,6 @@ int strix_queue_pwrite(int fd, const void* buf, size_t count, off_t offset, bool
     strix_batch_queue_t* queue = strix_queue_get();
     if (!queue) {
         return strix_sync_pwrite(fd, buf, count, offset);
-    }
-
-    if (strix_queue_should_flush(queue)) {
-        strix_queue_submit(queue);
     }
 
     strix_batch_op_t* op = alloc_op(queue);
@@ -434,7 +337,7 @@ int strix_queue_pwrite(int fd, const void* buf, size_t count, off_t offset, bool
     op->buf = (void*)buf;
     op->len = count;
     op->offset = offset;
-    op->sync_required = sync;
+    op->sync_required = false;
 
     int ret = strix_uring_prep_write(queue->uring, op);
     if (ret < 0) {
@@ -443,59 +346,18 @@ int strix_queue_pwrite(int fd, const void* buf, size_t count, off_t offset, bool
         return strix_sync_pwrite(fd, buf, count, offset);
     }
 
-    if (sync) {
-        ret = maybe_flush_and_wait(queue, true);
-        if (ret < 0) return ret;
-        queue->stats.total_bytes_written += op->result > 0 ? op->result : 0;
-        return op->result;
+    if (strix_queue_should_flush(queue)) {
+        STRIX_DEBUG("Flushing pwrite batch of %zu operations", queue->count);
+        strix_queue_submit_and_wait(queue);
     }
 
-    return 0;
+    return count;
 }
 
 int strix_queue_open(const char* path, int flags, mode_t mode, bool sync) {
-    if (!strix_is_enabled()) {
-        return strix_sync_open(path, flags, mode);
-    }
-
-    strix_batch_queue_t* queue = strix_queue_get();
-    if (!queue) {
-        return strix_sync_open(path, flags, mode);
-    }
-
-    if (strix_queue_should_flush(queue)) {
-        strix_queue_submit(queue);
-    }
-
-    strix_batch_op_t* op = alloc_op(queue);
-    if (!op) {
-        strix_queue_submit_and_wait(queue);
-        op = alloc_op(queue);
-        if (!op) {
-            return strix_sync_open(path, flags, mode);
-        }
-    }
-
-    op->type = STRIX_OP_OPEN;
-    op->path = path;
-    op->flags = flags;
-    op->mode = mode;
-    op->sync_required = sync;
-
-    int ret = strix_uring_prep_open(queue->uring, op);
-    if (ret < 0) {
-        queue->count--;
-        queue->stats.sync_fallbacks++;
-        return strix_sync_open(path, flags, mode);
-    }
-
-    if (sync) {
-        ret = maybe_flush_and_wait(queue, true);
-        if (ret < 0) return ret;
-        return (int)op->result;
-    }
-
-    return 0;
+    /* OPEN CANNOT BE RELIABLY BATCHED - need valid fd immediately */
+    (void)sync;
+    return strix_sync_open(path, flags, mode);
 }
 
 int strix_queue_close(int fd, bool sync) {
@@ -508,41 +370,20 @@ int strix_queue_close(int fd, bool sync) {
         return strix_sync_close(fd);
     }
 
-    if (strix_queue_should_flush(queue)) {
-        strix_queue_submit(queue);
-    }
-
-    strix_batch_op_t* op = alloc_op(queue);
-    if (!op) {
+    /* CRITICAL: Flush any pending writes for this fd before closing
+     * to ensure data is persisted. Close must wait for writes. */
+    if (queue->count > 0) {
+        STRIX_DEBUG("Flushing pending operations before close");
         strix_queue_submit_and_wait(queue);
-        op = alloc_op(queue);
-        if (!op) {
-            return strix_sync_close(fd);
-        }
     }
 
-    op->type = STRIX_OP_CLOSE;
-    op->fd = fd;
-    op->sync_required = sync;
-
-    int ret = strix_uring_prep_close(queue->uring, op);
-    if (ret < 0) {
-        queue->count--;
-        queue->stats.sync_fallbacks++;
-        return strix_sync_close(fd);
-    }
-
-    if (sync) {
-        ret = maybe_flush_and_wait(queue, true);
-        if (ret < 0) return ret;
-        return (int)op->result;
-    }
-
-    return 0;
+    /* Now close synchronously to ensure file is properly closed */
+    (void)sync;
+    return strix_sync_close(fd);
 }
 
 int strix_queue_fsync(int fd, bool sync) {
-    if (!strix_is_enabled()) {
+    if (!strix_is_enabled() || sync) {
         return strix_sync_fsync(fd);
     }
 
@@ -562,7 +403,7 @@ int strix_queue_fsync(int fd, bool sync) {
 
     op->type = STRIX_OP_FSYNC;
     op->fd = fd;
-    op->sync_required = sync;
+    op->sync_required = false;
 
     int ret = strix_uring_prep_fsync(queue->uring, op);
     if (ret < 0) {
@@ -570,17 +411,16 @@ int strix_queue_fsync(int fd, bool sync) {
         return strix_sync_fsync(fd);
     }
 
-    if (sync) {
-        ret = maybe_flush_and_wait(queue, true);
-        if (ret < 0) return ret;
-        return (int)op->result;
+    if (strix_queue_should_flush(queue)) {
+        STRIX_DEBUG("Flushing fsync batch of %zu operations", queue->count);
+        strix_queue_submit_and_wait(queue);
     }
 
     return 0;
 }
 
 int strix_queue_fdatasync(int fd, bool sync) {
-    if (!strix_is_enabled()) {
+    if (!strix_is_enabled() || sync) {
         return strix_sync_fdatasync(fd);
     }
 
@@ -600,7 +440,7 @@ int strix_queue_fdatasync(int fd, bool sync) {
 
     op->type = STRIX_OP_FDATASYNC;
     op->fd = fd;
-    op->sync_required = sync;
+    op->sync_required = false;
 
     int ret = strix_uring_prep_fsync(queue->uring, op);
     if (ret < 0) {
@@ -608,19 +448,17 @@ int strix_queue_fdatasync(int fd, bool sync) {
         return strix_sync_fdatasync(fd);
     }
 
-    if (sync) {
-        ret = maybe_flush_and_wait(queue, true);
-        if (ret < 0) return ret;
-        return (int)op->result;
+    if (strix_queue_should_flush(queue)) {
+        STRIX_DEBUG("Flushing fdatasync batch of %zu operations", queue->count);
+        strix_queue_submit_and_wait(queue);
     }
 
     return 0;
 }
 
-/* Stat operations use synchronous fallback for now
- * (statx via io_uring requires struct conversion) */
+/* Stat operations use synchronous fallback */
 int strix_queue_stat(const char* path, struct stat* buf, bool sync) {
-    (void)sync;  /* Always sync for stat */
+    (void)sync;
     return strix_sync_stat(path, buf);
 }
 
@@ -633,6 +471,7 @@ int strix_queue_lstat(const char* path, struct stat* buf, bool sync) {
     (void)sync;
     return strix_sync_lstat(path, buf);
 }
+
 
 /* ============================================================================
  * Batch Submission
