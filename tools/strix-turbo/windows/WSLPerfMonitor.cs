@@ -400,11 +400,17 @@ namespace WSLPerfMonitor
 
             try
             {
-                // Get process info including PID, start time, elapsed time, command, and CWD
+                // Get comprehensive process info: PID, cmd, elapsed, cpu%, mem%, state, tty, rss, ppid, start, cwd, cmdline
                 var psi = new ProcessStartInfo
                 {
                     FileName = "wsl",
-                    Arguments = "-e bash -c \"for pid in $(pgrep -x 'bash|zsh|node|npm|git|python|cargo|rustc|gcc|g++|make' 2>/dev/null | head -20); do cwd=$(readlink /proc/$pid/cwd 2>/dev/null); cmd=$(ps -p $pid -o comm= 2>/dev/null); elapsed=$(ps -p $pid -o etimes= 2>/dev/null | tr -d ' '); cmdline=$(tr '\\\\0' ' ' < /proc/$pid/cmdline 2>/dev/null | head -c 100); echo \\\"$pid|$cmd|$elapsed|$cwd|$cmdline\\\"; done\"",
+                    Arguments = "-e bash -c \"for pid in $(pgrep -x 'bash|zsh|node|npm|git|python|cargo|rustc|gcc|g++|make' 2>/dev/null | head -20); do " +
+                               "cwd=$(readlink /proc/$pid/cwd 2>/dev/null); " +
+                               "[ -z \\\"$cwd\\\" ] && continue; " +
+                               "read cmd etimes pcpu pmem stat tty rss ppid < <(ps -p $pid -o comm=,etimes=,pcpu=,pmem=,stat=,tty=,rss=,ppid= --no-headers 2>/dev/null); " +
+                               "start=$(ps -p $pid -o lstart= --no-headers 2>/dev/null); " +
+                               "cmdline=$(tr '\\\\0' ' ' < /proc/$pid/cmdline 2>/dev/null | head -c 200); " +
+                               "echo \\\"$pid|$cmd|$etimes|$pcpu|$pmem|$stat|$tty|$rss|$ppid|$start|$cwd|$cmdline\\\"; done\"",
                     RedirectStandardOutput = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
@@ -416,59 +422,93 @@ namespace WSLPerfMonitor
 
                 foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
                 {
-                    var parts = line.Split('|', 5);
-                    if (parts.Length >= 4)
+                    try
                     {
+                        // Parse: pid|cmd|etimes|pcpu|pmem|stat|tty|rss|ppid|start|cwd|cmdline
+                        var parts = line.Split('|');
+                        if (parts.Length < 11) continue;
+
                         var pid = parts[0].Trim();
                         var cmd = parts[1].Trim();
-                        var elapsedStr = parts[2].Trim();
-                        var cwd = parts[3].Trim();
-                        var cmdline = parts.Length > 4 ? parts[4].Trim() : "";
+                        int.TryParse(parts[2].Trim(), out int elapsedSeconds);
+                        var cpuStr = parts[3].Trim();
+                        var memStr = parts[4].Trim();
+                        var state = parts[5].Trim();
+                        var tty = parts[6].Trim();
+                        int.TryParse(parts[7].Trim(), out int rssKb);
+                        var ppid = parts[8].Trim();
+                        var startTime = parts[9].Trim();
+                        var cwd = parts[10].Trim();
+                        var cmdline = parts.Length > 11 ? parts[11].Trim() : "";
 
                         if (!IsSlowPath(cwd)) continue;
 
-                        // Parse elapsed time (in seconds)
-                        int.TryParse(elapsedStr, out int elapsedSeconds);
                         var elapsed = TimeSpan.FromSeconds(elapsedSeconds);
 
-                        // Determine if this is likely a zombie (running > 5 min, or has benchmark/test in cmdline)
+                        // Determine if this is likely a zombie/stuck process
                         bool isZombie = elapsedSeconds > 300 || // > 5 minutes
                                        cmdline.Contains("benchmark") ||
                                        cmdline.Contains("test") ||
                                        cmdline.Contains("batch") ||
-                                       cmdline.Contains("LD_PRELOAD");
+                                       cmdline.Contains("LD_PRELOAD") ||
+                                       state.Contains("D") || // Uninterruptible sleep
+                                       state.Contains("Z");   // Zombie
 
                         // Format elapsed time
                         string elapsedDisplay = elapsed.TotalHours >= 1
-                            ? $"{elapsed.Hours}h {elapsed.Minutes}m"
+                            ? $"{(int)elapsed.TotalHours}h {elapsed.Minutes}m"
                             : elapsed.TotalMinutes >= 1
                                 ? $"{elapsed.Minutes}m {elapsed.Seconds}s"
                                 : $"{elapsed.Seconds}s";
 
-                        // Truncate cmdline for display
-                        string cmdlineShort = cmdline.Length > 60 ? cmdline.Substring(0, 57) + "..." : cmdline;
+                        // Format memory
+                        string memDisplay = rssKb > 1024 ? $"{rssKb / 1024}MB" : $"{rssKb}KB";
+
+                        // State description
+                        string stateDesc = state switch
+                        {
+                            var s when s.StartsWith("S") => "sleeping",
+                            var s when s.StartsWith("R") => "running",
+                            var s when s.StartsWith("D") => "STUCK (I/O)",
+                            var s when s.StartsWith("Z") => "ZOMBIE",
+                            var s when s.StartsWith("T") => "stopped",
+                            _ => state
+                        };
+
+                        // Build detailed info with all context
+                        var details = $"PID: {pid} | PPID: {ppid} | State: {stateDesc}\n" +
+                                     $"CPU: {cpuStr}% | Mem: {memDisplay} ({memStr}%) | TTY: {tty}\n" +
+                                     $"Started: {startTime}\n" +
+                                     $"CWD: {cwd}";
+
+                        if (!string.IsNullOrEmpty(cmdline))
+                        {
+                            var cmdlineShort = cmdline.Length > 100 ? cmdline.Substring(0, 97) + "..." : cmdline;
+                            details += $"\nCmd: {cmdlineShort}";
+                        }
 
                         var severity = isZombie ? IssueSeverity.Error :
                                       (cmd is "git" or "npm" or "node" or "cargo" or "rustc" ? IssueSeverity.Error : IssueSeverity.Warning);
 
                         var message = isZombie
-                            ? $"ZOMBIE: {cmd} stuck for {elapsedDisplay}"
-                            : $"{cmd} on slow path ({elapsedDisplay})";
+                            ? $"ZOMBIE: {cmd} [{stateDesc}] {elapsedDisplay}"
+                            : $"{cmd} on /mnt/c ({elapsedDisplay}, {cpuStr}% CPU)";
 
                         var suggestion = isZombie
-                            ? $"Kill with: wsl -e kill -9 {pid}"
-                            : "Move project to ~/projects/ for 10-100x faster I/O";
+                            ? $"Kill: wsl -e kill -9 {pid}"
+                            : "Move to ~/projects/ for 10-100x faster I/O";
 
                         issues.Add(new PerformanceIssue
                         {
                             Severity = severity,
                             Message = message,
-                            Details = string.IsNullOrEmpty(cmdlineShort) ? cwd : $"{cwd}\n{cmdlineShort}",
+                            Details = details,
                             Suggestion = suggestion,
                             Process = isZombie ? $"⚠{cmd}" : cmd,
                             Path = cwd
                         });
                     }
+                    catch { /* Skip malformed lines */ }
                 }
             }
             catch (Exception ex)
