@@ -84,6 +84,14 @@ bool SharedMemoryRegion::map_fd(int fd, size_t size) {
 #endif // !_WIN32
 
 //==============================================================================
+// Event Signaling Helper
+//==============================================================================
+
+static void signal_cmd_event(ControlBlock* ctrl) {
+    ctrl->cmd_event.fetch_add(1, std::memory_order_release);
+}
+
+//==============================================================================
 // ResponseRing::wait_for Implementation
 //==============================================================================
 
@@ -116,7 +124,13 @@ bool ResponseRing::wait_for(uint32_t request_id, ResponseEntry& out, uint32_t ti
             idx = (idx + 1) % RSP_RING_ENTRIES;
         }
 
-        // Not found, yield and retry
+        // Check event counter before sleeping
+        uint32_t evt = control_->rsp_event.load(std::memory_order_acquire);
+        if (evt > 0) {
+            control_->rsp_event.fetch_sub(1, std::memory_order_relaxed);
+            continue;
+        }
+
         std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
 
@@ -229,6 +243,7 @@ int SharedMemoryClient::open(const char* path, uint32_t flags, uint32_t mode) {
         release_fd(fd);
         return -EAGAIN;
     }
+    signal_cmd_event(shm_.control());
 
     // Wait for response
     ResponseEntry response;
@@ -243,7 +258,7 @@ int SharedMemoryClient::open(const char* path, uint32_t flags, uint32_t mode) {
     }
 
     // Store server handle
-    handles_[fd].server_handle = response.data_offset;  // Server uses this for handle ID
+    handles_[fd].server_handle = response.data_offset;
     strncpy(handles_[fd].path, path, sizeof(handles_[fd].path) - 1);
     handles_[fd].path[sizeof(handles_[fd].path) - 1] = '\0';
 
@@ -255,12 +270,13 @@ int SharedMemoryClient::close(int fd) {
         return -EBADF;
     }
 
-    // Submit close command
-    uint32_t req_id = cmd_ring_.submit(CommandType::Close, nullptr,
-                                       static_cast<uint32_t>(handles_[fd].server_handle), 0, 0);
+    // Submit close command with handle parameter
+    uint32_t req_id = cmd_ring_.submit(CommandType::Close, nullptr, 0, 0, 0,
+                                       static_cast<uint32_t>(handles_[fd].server_handle));
     if (req_id == 0) {
         return -EAGAIN;
     }
+    signal_cmd_event(shm_.control());
 
     // Wait for response
     ResponseEntry response;
@@ -291,16 +307,18 @@ ssize_t SharedMemoryClient::pread(int fd, void* buf, size_t count, off_t offset)
     // Allocate data region for result
     uint32_t data_offset = alloc_data(count);
 
-    // Encode offset and server handle
-    // For simplicity, using flags for server handle, data_offset for read offset
-    uint32_t flags = static_cast<uint32_t>(handles_[fd].server_handle);
+    // Use handle and file_offset fields directly
+    uint32_t handle = static_cast<uint32_t>(handles_[fd].server_handle);
+    uint64_t off = (offset >= 0) ? static_cast<uint64_t>(offset) : handles_[fd].position;
 
     // Submit read command
-    uint32_t req_id = cmd_ring_.submit(CommandType::Read, nullptr, flags,
-                                       data_offset, static_cast<uint32_t>(count));
+    uint32_t req_id = cmd_ring_.submit(CommandType::Read, nullptr, 0,
+                                       data_offset, static_cast<uint32_t>(count),
+                                       handle, off);
     if (req_id == 0) {
         return -EAGAIN;
     }
+    signal_cmd_event(shm_.control());
 
     // Wait for response
     ResponseEntry response;
@@ -343,13 +361,18 @@ ssize_t SharedMemoryClient::pwrite(int fd, const void* buf, size_t count, off_t 
     void* dest = static_cast<char*>(shm_.data_region()) + data_offset;
     memcpy(dest, buf, count);
 
+    // Use handle and file_offset fields directly
+    uint32_t handle = static_cast<uint32_t>(handles_[fd].server_handle);
+    uint64_t off = (offset >= 0) ? static_cast<uint64_t>(offset) : handles_[fd].position;
+
     // Submit write command
-    uint32_t flags = static_cast<uint32_t>(handles_[fd].server_handle);
-    uint32_t req_id = cmd_ring_.submit(CommandType::Write, nullptr, flags,
-                                       data_offset, static_cast<uint32_t>(count));
+    uint32_t req_id = cmd_ring_.submit(CommandType::Write, nullptr, 0,
+                                       data_offset, static_cast<uint32_t>(count),
+                                       handle, off);
     if (req_id == 0) {
         return -EAGAIN;
     }
+    signal_cmd_event(shm_.control());
 
     // Wait for response
     ResponseEntry response;
@@ -385,6 +408,7 @@ int SharedMemoryClient::stat(const char* path, FileMetadata* meta) {
     if (req_id == 0) {
         return -EAGAIN;
     }
+    signal_cmd_event(shm_.control());
 
     ResponseEntry response;
     if (!rsp_ring_.wait_for(req_id, response)) {
@@ -406,9 +430,36 @@ int SharedMemoryClient::fstat(int fd, FileMetadata* meta) {
     if (fd < 0 || fd >= 1024 || !handles_[fd].in_use) {
         return -EBADF;
     }
+    if (!meta) {
+        return -EINVAL;
+    }
 
-    // Use stored path for stat
-    return stat(handles_[fd].path, meta);
+    // Allocate space for result
+    uint32_t data_offset = alloc_data(sizeof(FileMetadata));
+
+    // Use Fstat command with the server handle
+    uint32_t req_id = cmd_ring_.submit(CommandType::Fstat, nullptr, 0,
+                                       data_offset, sizeof(FileMetadata),
+                                       static_cast<uint32_t>(handles_[fd].server_handle));
+    if (req_id == 0) {
+        return -EAGAIN;
+    }
+    signal_cmd_event(shm_.control());
+
+    ResponseEntry response;
+    if (!rsp_ring_.wait_for(req_id, response)) {
+        return -ETIMEDOUT;
+    }
+
+    if (response.error != ErrorCode::Success) {
+        return static_cast<int>(response.error);
+    }
+
+    // Copy result
+    void* src = static_cast<char*>(shm_.data_region()) + response.data_offset;
+    memcpy(meta, src, sizeof(FileMetadata));
+
+    return 0;
 }
 
 int SharedMemoryClient::readdir(const char* path, DirEntry* entries,
@@ -427,6 +478,7 @@ int SharedMemoryClient::readdir(const char* path, DirEntry* entries,
     if (req_id == 0) {
         return -EAGAIN;
     }
+    signal_cmd_event(shm_.control());
 
     ResponseEntry response;
     if (!rsp_ring_.wait_for(req_id, response)) {
@@ -462,6 +514,7 @@ int SharedMemoryClient::mkdir(const char* path, uint32_t mode) {
     if (req_id == 0) {
         return -EAGAIN;
     }
+    signal_cmd_event(shm_.control());
 
     ResponseEntry response;
     if (!rsp_ring_.wait_for(req_id, response)) {
@@ -480,6 +533,7 @@ int SharedMemoryClient::rmdir(const char* path) {
     if (req_id == 0) {
         return -EAGAIN;
     }
+    signal_cmd_event(shm_.control());
 
     ResponseEntry response;
     if (!rsp_ring_.wait_for(req_id, response)) {
@@ -498,6 +552,7 @@ int SharedMemoryClient::unlink(const char* path) {
     if (req_id == 0) {
         return -EAGAIN;
     }
+    signal_cmd_event(shm_.control());
 
     ResponseEntry response;
     if (!rsp_ring_.wait_for(req_id, response)) {
@@ -530,6 +585,7 @@ int SharedMemoryClient::rename(const char* oldpath, const char* newpath) {
     if (req_id == 0) {
         return -EAGAIN;
     }
+    signal_cmd_event(shm_.control());
 
     ResponseEntry response;
     if (!rsp_ring_.wait_for(req_id, response)) {
@@ -561,6 +617,8 @@ int SharedMemoryClient::batch_read(BatchReadRequest* requests, size_t count) {
             break;
         }
     }
+
+    signal_cmd_event(shm_.control());
 
     // Wait for all responses
     for (size_t i = 0; i < count; i++) {
@@ -600,6 +658,8 @@ int SharedMemoryClient::batch_stat(BatchStatRequest* requests, size_t count) {
         }
     }
 
+    signal_cmd_event(shm_.control());
+
     for (size_t i = 0; i < count; i++) {
         ResponseEntry response;
         if (rsp_ring_.wait_for(request_ids[i], response)) {
@@ -630,7 +690,7 @@ void SharedMemoryClient::prefetch(const char** paths, size_t count) {
         }
     }
 
-    // Don't wait for responses - this is a hint
+    signal_cmd_event(shm_.control());
 }
 
 } // namespace shm

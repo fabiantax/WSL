@@ -11,7 +11,7 @@
  *
  * Memory Layout:
  *   [0x0000 - 0x1000)     Control Block (4KB)
- *   [0x1000 - 0x2000)     Command Ring Buffer (4KB, 256 entries)
+ *   [0x1000 - 0x2000)     Command Ring Buffer (4KB, 128 entries x 32B)
  *   [0x2000 - 0x3000)     Response Ring Buffer (4KB, 256 entries)
  *   [0x3000 - 0x100000)   Metadata Cache (1MB - 12KB)
  *   [0x100000 - END)      Data Region (remaining space)
@@ -45,7 +45,7 @@ constexpr size_t CONTROL_BLOCK_SIZE   = 0x1000;  // 4KB
 
 constexpr size_t CMD_RING_OFFSET      = 0x1000;
 constexpr size_t CMD_RING_SIZE        = 0x1000;  // 4KB
-constexpr size_t CMD_RING_ENTRIES     = 256;
+constexpr size_t CMD_RING_ENTRIES     = 128;     // 128 x 32B = 4096
 
 constexpr size_t RSP_RING_OFFSET      = 0x2000;
 constexpr size_t RSP_RING_SIZE        = 0x1000;  // 4KB
@@ -57,7 +57,7 @@ constexpr size_t METADATA_SIZE        = 0x100000 - 0x3000;  // ~1MB
 constexpr size_t DATA_REGION_OFFSET   = 0x100000;  // 1MB
 
 constexpr uint32_t MAGIC_NUMBER       = 0x53545258;  // "STRX"
-constexpr uint32_t PROTOCOL_VERSION   = 1;
+constexpr uint32_t PROTOCOL_VERSION   = 2;  // v2: 32B CommandEntry with handle/offset
 
 //==============================================================================
 // Command Types
@@ -137,7 +137,7 @@ enum class ErrorCode : int32_t {
 // Control Block (at offset 0)
 //==============================================================================
 
-struct alignas(64) ControlBlock {
+struct ControlBlockFields {
     // Magic and version (read-only after init)
     uint32_t magic;
     uint32_t version;
@@ -164,51 +164,50 @@ struct alignas(64) ControlBlock {
     // Data region allocator
     alignas(64) std::atomic<uint64_t> data_alloc_head;  // Next free offset in data region
 
-    // Padding to 4KB
-    uint8_t _reserved[CONTROL_BLOCK_SIZE - 256];
+    // Event signaling (for replacing busy-polling)
+    alignas(64) std::atomic<uint32_t> cmd_event;   // Signaled when new command available
+    std::atomic<uint32_t> rsp_event;               // Signaled when new response available
+};
+
+struct alignas(64) ControlBlock : ControlBlockFields {
+    // Pad to exactly 4KB
+    uint8_t _reserved[CONTROL_BLOCK_SIZE - sizeof(ControlBlockFields)];
 
     bool is_valid() const {
         return magic == MAGIC_NUMBER && version == PROTOCOL_VERSION;
     }
 
     void initialize(uint64_t total_size) {
+        memset(this, 0, sizeof(*this));
         magic = MAGIC_NUMBER;
         version = PROTOCOL_VERSION;
         region_size = total_size;
-        windows_ready = 0;
-        linux_ready = 0;
-        shutdown = 0;
-        cmd_head = 0;
-        cmd_tail = 0;
-        rsp_head = 0;
-        rsp_tail = 0;
-        commands_processed = 0;
-        bytes_transferred = 0;
-        cache_hits = 0;
-        cache_misses = 0;
-        data_alloc_head = DATA_REGION_OFFSET;
+        data_alloc_head.store(DATA_REGION_OFFSET, std::memory_order_relaxed);
     }
 };
 
 static_assert(sizeof(ControlBlock) == CONTROL_BLOCK_SIZE, "ControlBlock size mismatch");
 
 //==============================================================================
-// Command Entry (16 bytes, fits 256 in 4KB)
+// Command Entry (32 bytes, fits 128 in 4KB)
 //==============================================================================
 
-struct alignas(16) CommandEntry {
-    CommandType type;
-    uint8_t flags;
-    uint16_t path_len;          // Length of path in metadata region
-    uint32_t data_offset;       // Offset in data region (relative to DATA_REGION_OFFSET)
-    uint32_t data_len;          // Length of data
-    uint32_t request_id;        // For matching responses
+struct alignas(32) CommandEntry {
+    CommandType type;             // 1B: operation type
+    uint8_t flags;                // 1B: open flags, mode bits, etc.
+    uint16_t path_len;            // 2B: length of path in metadata region
+    uint32_t request_id;          // 4B: for matching responses
+    uint32_t handle;              // 4B: server-assigned file handle
+    uint64_t file_offset;         // 8B: file offset for pread/pwrite (-1 = use position)
+    uint32_t data_offset;         // 4B: offset in data region (relative to DATA_REGION_OFFSET)
+    uint32_t data_len;            // 4B: length of data
+    uint32_t _reserved;           // 4B: future use (mode, uid, etc.)
 
     // Path is stored inline after the command ring in metadata region
     // Formula: metadata_offset = METADATA_OFFSET + (cmd_index * 256)
 };
 
-static_assert(sizeof(CommandEntry) == 16, "CommandEntry must be 16 bytes");
+static_assert(sizeof(CommandEntry) == 32, "CommandEntry must be 32 bytes");
 
 //==============================================================================
 // Response Entry (16 bytes)
@@ -349,7 +348,8 @@ public:
      * Returns request_id, or 0 if queue full.
      */
     uint32_t submit(CommandType type, const char* path, uint32_t flags,
-                    uint32_t data_offset, uint32_t data_len) {
+                    uint32_t data_offset, uint32_t data_len,
+                    uint32_t handle = 0, uint64_t file_offset = UINT64_MAX) {
         uint32_t head = control_->cmd_head.load(std::memory_order_relaxed);
         uint32_t tail = control_->cmd_tail.load(std::memory_order_acquire);
 
@@ -362,8 +362,11 @@ public:
         entry.type = type;
         entry.flags = static_cast<uint8_t>(flags);
         entry.request_id = req_id;
+        entry.handle = handle;
+        entry.file_offset = file_offset;
         entry.data_offset = data_offset;
         entry.data_len = data_len;
+        entry._reserved = 0;
 
         // Copy path to metadata region
         if (path) {
@@ -546,6 +549,141 @@ private:
     // Data region allocator
     uint32_t alloc_data(size_t size);
     void free_data(uint32_t offset, size_t size);
+};
+
+//==============================================================================
+// Power-of-2 Slab Data Allocator
+//==============================================================================
+
+class DataAllocator {
+public:
+    // Slab sizes: 256B, 1KB, 4KB, 64KB, 256KB, 1MB
+    static constexpr size_t NUM_SLABS = 6;
+    static constexpr size_t SLAB_SIZES[NUM_SLABS] = {
+        256, 1024, 4096, 65536, 262144, 1048576
+    };
+
+    struct SlabHeader {
+        std::atomic<uint32_t> free_head;  // Lock-free free-list head (offset)
+        uint32_t slab_size;
+        uint32_t total_count;
+        uint32_t _pad;
+    };
+
+    // Each free block starts with a next-pointer (uint32_t offset to next free block)
+    struct FreeNode {
+        uint32_t next;  // Offset of next free block, 0 = end of list
+    };
+
+    void initialize(void* data_base, size_t data_size) {
+        base_ = static_cast<char*>(data_base);
+        total_size_ = data_size;
+
+        // Reserve first 256B for slab headers
+        size_t header_size = NUM_SLABS * sizeof(SlabHeader);
+        header_size = (header_size + 63) & ~63;  // Align to 64B
+
+        // Divide remaining space among slabs (weighted by expected usage)
+        // 256B: 10%, 1KB: 15%, 4KB: 20%, 64KB: 25%, 256KB: 20%, 1MB: 10%
+        static constexpr int WEIGHTS[NUM_SLABS] = {10, 15, 20, 25, 20, 10};
+        size_t usable = data_size - header_size;
+        size_t offset = header_size;
+
+        for (size_t i = 0; i < NUM_SLABS; i++) {
+            SlabHeader* hdr = reinterpret_cast<SlabHeader*>(base_ + i * sizeof(SlabHeader));
+            size_t slab_total = (usable * WEIGHTS[i]) / 100;
+            uint32_t count = static_cast<uint32_t>(slab_total / SLAB_SIZES[i]);
+            if (count == 0) count = 1;
+
+            hdr->slab_size = static_cast<uint32_t>(SLAB_SIZES[i]);
+            hdr->total_count = count;
+
+            // Build free list
+            uint32_t first = static_cast<uint32_t>(offset);
+            for (uint32_t j = 0; j < count; j++) {
+                FreeNode* node = reinterpret_cast<FreeNode*>(base_ + offset);
+                uint32_t next_offset = (j + 1 < count) ?
+                    static_cast<uint32_t>(offset + SLAB_SIZES[i]) : 0;
+                node->next = next_offset;
+                offset += SLAB_SIZES[i];
+                if (offset > data_size) {
+                    hdr->total_count = j + 1;
+                    if (j + 1 < count) {
+                        node->next = 0;
+                    }
+                    break;
+                }
+            }
+            hdr->free_head.store(first, std::memory_order_relaxed);
+
+            slab_offsets_[i] = first;
+        }
+
+        // Bump allocator for oversized (>1MB)
+        bump_offset_.store(static_cast<uint64_t>(offset), std::memory_order_relaxed);
+    }
+
+    // Allocate from slab or bump allocator. Returns offset relative to data_base.
+    uint32_t allocate(size_t size) {
+        // Find smallest fitting slab
+        for (size_t i = 0; i < NUM_SLABS; i++) {
+            if (size <= SLAB_SIZES[i]) {
+                uint32_t offset = slab_pop(i);
+                if (offset != 0) return offset;
+            }
+        }
+
+        // Fallback: bump allocator for oversized
+        size = (size + 63) & ~63;  // Align to 64B
+        uint64_t off = bump_offset_.fetch_add(size, std::memory_order_relaxed);
+        if (off + size > total_size_) {
+            return 0;  // Out of memory
+        }
+        return static_cast<uint32_t>(off);
+    }
+
+    // Free back to slab free list
+    void free(uint32_t offset, size_t size) {
+        if (offset == 0) return;
+
+        // Find matching slab
+        for (size_t i = 0; i < NUM_SLABS; i++) {
+            if (size <= SLAB_SIZES[i]) {
+                slab_push(i, offset);
+                return;
+            }
+        }
+        // Oversized blocks from bump allocator are leaked (acceptable for now)
+    }
+
+private:
+    uint32_t slab_pop(size_t slab_idx) {
+        SlabHeader* hdr = reinterpret_cast<SlabHeader*>(base_ + slab_idx * sizeof(SlabHeader));
+        uint32_t head = hdr->free_head.load(std::memory_order_acquire);
+        while (head != 0) {
+            FreeNode* node = reinterpret_cast<FreeNode*>(base_ + head);
+            if (hdr->free_head.compare_exchange_weak(head, node->next,
+                    std::memory_order_acq_rel, std::memory_order_acquire)) {
+                return head;
+            }
+        }
+        return 0;  // Empty
+    }
+
+    void slab_push(size_t slab_idx, uint32_t offset) {
+        SlabHeader* hdr = reinterpret_cast<SlabHeader*>(base_ + slab_idx * sizeof(SlabHeader));
+        FreeNode* node = reinterpret_cast<FreeNode*>(base_ + offset);
+        uint32_t head = hdr->free_head.load(std::memory_order_relaxed);
+        do {
+            node->next = head;
+        } while (!hdr->free_head.compare_exchange_weak(head, offset,
+                    std::memory_order_release, std::memory_order_relaxed));
+    }
+
+    char* base_ = nullptr;
+    size_t total_size_ = 0;
+    size_t slab_offsets_[NUM_SLABS] = {};
+    std::atomic<uint64_t> bump_offset_{0};
 };
 
 //==============================================================================
