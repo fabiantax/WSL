@@ -41,6 +41,8 @@ namespace WSLPerfMonitor
         private bool _warningsEnabled = true;
         private DateTime _lastWarning = DateTime.MinValue;
         private readonly TimeSpan _warningCooldown = TimeSpan.FromSeconds(30);
+        private DashboardForm? _dashboardForm;
+        private ScanResultsForm? _scanResultsForm;
 
         public TrayApplicationContext()
         {
@@ -158,14 +160,30 @@ namespace WSLPerfMonitor
 
         private void OnScanNow(object sender, EventArgs e)
         {
-            var form = new ScanResultsForm(_monitor);
-            form.Show();
+            if (_scanResultsForm == null || _scanResultsForm.IsDisposed)
+            {
+                _scanResultsForm = new ScanResultsForm(_monitor);
+                _scanResultsForm.Show();
+            }
+            else
+            {
+                _scanResultsForm.BringToFront();
+                _scanResultsForm.Activate();
+            }
         }
 
         private void OnOpenDashboard(object sender, EventArgs e)
         {
-            var form = new DashboardForm(_monitor);
-            form.Show();
+            if (_dashboardForm == null || _dashboardForm.IsDisposed)
+            {
+                _dashboardForm = new DashboardForm(_monitor);
+                _dashboardForm.Show();
+            }
+            else
+            {
+                _dashboardForm.BringToFront();
+                _dashboardForm.Activate();
+            }
         }
 
         private void OnMigrateProject(object sender, EventArgs e)
@@ -476,35 +494,57 @@ namespace WSLPerfMonitor
 
     public class ScanResultsForm : Form
     {
+        private readonly ListView _listView;
+
         public ScanResultsForm(WSLMonitor monitor)
         {
             Text = "WSL Performance Scan Results";
             Size = new Size(600, 400);
             StartPosition = FormStartPosition.CenterScreen;
 
-            var listView = new ListView
+            _listView = new ListView
             {
                 Dock = DockStyle.Fill,
                 View = View.Details,
                 FullRowSelect = true
             };
-            listView.Columns.Add("Severity", 70);
-            listView.Columns.Add("Issue", 200);
-            listView.Columns.Add("Details", 300);
+            _listView.Columns.Add("Severity", 70);
+            _listView.Columns.Add("Issue", 200);
+            _listView.Columns.Add("Details", 300);
+
+            // Context menu for copying
+            var listContextMenu = new ContextMenuStrip();
+            var copySelectedItem = new ToolStripMenuItem("Copy Selected", null, (s, e) => CopySelected());
+            copySelectedItem.ShortcutKeys = Keys.Control | Keys.C;
+            var copyAllItem = new ToolStripMenuItem("Copy All", null, (s, e) => CopyAll());
+            copyAllItem.ShortcutKeys = Keys.Control | Keys.Shift | Keys.C;
+            listContextMenu.Items.Add(copySelectedItem);
+            listContextMenu.Items.Add(copyAllItem);
+            _listView.ContextMenuStrip = listContextMenu;
+
+            // Enable keyboard shortcut
+            _listView.KeyDown += (s, e) =>
+            {
+                if (e.Control && e.KeyCode == Keys.C)
+                {
+                    CopySelected();
+                    e.Handled = true;
+                }
+            };
 
             var issues = monitor.Scan();
             foreach (var issue in issues)
             {
                 var item = new ListViewItem(issue.Severity.ToString());
                 item.SubItems.Add(issue.Message);
-                item.SubItems.Add(issue.Details);
+                item.SubItems.Add(issue.Details ?? "");
                 item.BackColor = issue.Severity switch
                 {
                     IssueSeverity.Error => Color.MistyRose,
                     IssueSeverity.Warning => Color.LemonChiffon,
                     _ => Color.White
                 };
-                listView.Items.Add(item);
+                _listView.Items.Add(item);
             }
 
             if (!issues.Any())
@@ -513,10 +553,60 @@ namespace WSLPerfMonitor
                 item.SubItems.Add("No performance issues detected");
                 item.SubItems.Add("All processes running on fast Linux filesystem");
                 item.BackColor = Color.Honeydew;
-                listView.Items.Add(item);
+                _listView.Items.Add(item);
             }
 
-            Controls.Add(listView);
+            // Button panel
+            var buttonPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 40,
+                Padding = new Padding(5),
+                FlowDirection = FlowDirection.RightToLeft
+            };
+            var copyBtn = new Button { Text = "Copy All", Width = 80 };
+            copyBtn.Click += (s, e) => CopyAll();
+            buttonPanel.Controls.Add(copyBtn);
+
+            Controls.Add(_listView);
+            Controls.Add(buttonPanel);
+        }
+
+        private void CopySelected()
+        {
+            if (_listView.SelectedItems.Count == 0) return;
+
+            var lines = new List<string>();
+            foreach (ListViewItem item in _listView.SelectedItems)
+            {
+                var cols = new List<string>();
+                foreach (ListViewItem.ListViewSubItem sub in item.SubItems)
+                {
+                    cols.Add(sub.Text);
+                }
+                lines.Add(string.Join("\t", cols));
+            }
+            Clipboard.SetText(string.Join(Environment.NewLine, lines));
+        }
+
+        private void CopyAll()
+        {
+            var lines = new List<string>();
+
+            // Add header
+            lines.Add("Severity\tIssue\tDetails");
+
+            // Add rows
+            foreach (ListViewItem item in _listView.Items)
+            {
+                var cols = new List<string>();
+                foreach (ListViewItem.ListViewSubItem sub in item.SubItems)
+                {
+                    cols.Add(sub.Text);
+                }
+                lines.Add(string.Join("\t", cols));
+            }
+            Clipboard.SetText(string.Join(Environment.NewLine, lines));
         }
     }
 
@@ -559,6 +649,31 @@ namespace WSLPerfMonitor
             _issueList.Columns.Add("Path", 300);
             _issueList.Columns.Add("Suggestion", 200);
 
+            // Context menu for copying
+            var listContextMenu = new ContextMenuStrip();
+            var copySelectedItem = new ToolStripMenuItem("Copy Selected", null, (s, e) => CopySelected());
+            copySelectedItem.ShortcutKeys = Keys.Control | Keys.C;
+            var copyAllItem = new ToolStripMenuItem("Copy All", null, (s, e) => CopyAll());
+            copyAllItem.ShortcutKeys = Keys.Control | Keys.Shift | Keys.C;
+            listContextMenu.Items.Add(copySelectedItem);
+            listContextMenu.Items.Add(copyAllItem);
+            _issueList.ContextMenuStrip = listContextMenu;
+
+            // Enable keyboard shortcut
+            _issueList.KeyDown += (s, e) =>
+            {
+                if (e.Control && e.KeyCode == Keys.C)
+                {
+                    CopySelected();
+                    e.Handled = true;
+                }
+                else if (e.Control && e.Shift && e.KeyCode == Keys.C)
+                {
+                    CopyAll();
+                    e.Handled = true;
+                }
+            };
+
             // Button panel
             var buttonPanel = new FlowLayoutPanel
             {
@@ -571,9 +686,13 @@ namespace WSLPerfMonitor
             var refreshBtn = new Button { Text = "Refresh", Width = 100 };
             refreshBtn.Click += (s, e) => RefreshIssues();
 
+            var copyBtn = new Button { Text = "Copy All", Width = 100 };
+            copyBtn.Click += (s, e) => CopyAll();
+
             var migrateBtn = new Button { Text = "Migrate Selected", Width = 120 };
 
             buttonPanel.Controls.Add(refreshBtn);
+            buttonPanel.Controls.Add(copyBtn);
             buttonPanel.Controls.Add(migrateBtn);
 
             Controls.Add(_issueList);
@@ -586,6 +705,48 @@ namespace WSLPerfMonitor
             _refreshTimer.Start();
 
             RefreshIssues();
+        }
+
+        private void CopySelected()
+        {
+            if (_issueList.SelectedItems.Count == 0) return;
+
+            var lines = new List<string>();
+            foreach (ListViewItem item in _issueList.SelectedItems)
+            {
+                var cols = new List<string>();
+                foreach (ListViewItem.ListViewSubItem sub in item.SubItems)
+                {
+                    cols.Add(sub.Text);
+                }
+                lines.Add(string.Join("\t", cols));
+            }
+            Clipboard.SetText(string.Join(Environment.NewLine, lines));
+        }
+
+        private void CopyAll()
+        {
+            var lines = new List<string>();
+
+            // Add header
+            var headers = new List<string>();
+            foreach (ColumnHeader col in _issueList.Columns)
+            {
+                headers.Add(col.Text);
+            }
+            lines.Add(string.Join("\t", headers));
+
+            // Add rows
+            foreach (ListViewItem item in _issueList.Items)
+            {
+                var cols = new List<string>();
+                foreach (ListViewItem.ListViewSubItem sub in item.SubItems)
+                {
+                    cols.Add(sub.Text);
+                }
+                lines.Add(string.Join("\t", cols));
+            }
+            Clipboard.SetText(string.Join(Environment.NewLine, lines));
         }
 
         private void RefreshIssues()
