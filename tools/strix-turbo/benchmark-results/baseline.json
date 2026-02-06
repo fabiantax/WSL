@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-02-03T09:51:07+01:00",
+  "kernel": "6.6.114.1-microsoft-standard-WSL2",
+  "cpu": "AMD RYZEN AI MAX+ PRO 395 w/ Radeon 8060S",
+  "cores": 32,
+  "tests": {
+    "parallel_compilation": 0.553712929,
+    "cpu_computation": 0.109807333,
+    "small_file_io": 0.012729853,
+    "syscall_overhead": 0.035615300,
+    "git_workflow": 0.028064082
+  }
+}

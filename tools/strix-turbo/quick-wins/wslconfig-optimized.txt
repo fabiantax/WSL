@@ -1,0 +1,52 @@
+# Optimized .wslconfig for AMD Strix Halo (Ryzen AI Max+ 395)
+# Copy this to: %USERPROFILE%\.wslconfig
+#
+# Then run: wsl --shutdown
+
+[wsl2]
+# Network optimizations - eliminates NAT overhead
+networkingMode=mirrored
+dnsTunneling=true
+firewall=true
+autoProxy=true
+
+# Memory configuration (128GB unified memory)
+memory=120GB
+swap=0
+pageReporting=false
+
+# CPU configuration (16 cores)
+processors=16
+
+# Kernel configuration
+# Uncomment after building custom kernel:
+# kernel=C:\\Users\\YOUR_USERNAME\\WSL2-Kernels\\bzImage-zen5-latest
+
+# VirtioFS - faster filesystem transport (requires custom kernel with FUSE 7.38 patch)
+# Without the patch, FUSE 7.45 from mainline kernels causes mount hangs.
+# Run build-mainline-wsl2-kernel.sh which auto-patches FUSE version.
+# Also add to /etc/fstab inside WSL:
+#   drvfsaC0 /mnt/c virtiofs rw,relatime,nofail 0 0
+#   drvfsaD1 /mnt/d virtiofs rw,relatime,nofail 0 0
+virtiofs=true
+
+# GPU configuration (when driver supports gfx1151)
+# Uncomment when AMD releases WSL2 driver:
+# guiApplications=true
+
+# I/O optimizations
+localhostForwarding=true
+nestedVirtualization=false
+
+# Debugging
+debugConsole=false
+
+[experimental]
+# Host process launch (faster than SSH)
+hostProcessLaunch=true
+
+# Sparse VHD (reduces disk usage)
+sparseVhd=true
+
+# Auto-memory reclaim
+autoMemoryReclaim=gradual

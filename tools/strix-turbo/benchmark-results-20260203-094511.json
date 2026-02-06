@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-02-03T09:45:11+01:00",
+  "kernel_version": "6.6.114.1-microsoft-standard-WSL2",
+  "cpu_model": "AMD RYZEN AI MAX+ PRO 395 w/ Radeon 8060S",
+  "cpu_cores": 32,
+  "total_ram": "94Gi",
+  "benchmarks": {
+    "cpu_gzip_compression": {"value": 1.501596989, "unit": "seconds"},
+    "cpu_pigz_compression_parallel": {"value": .238313988, "unit": "seconds"},
+    "memory_bandwidth": {"value": 9259259.26, "unit": "GB/s"},
+    "io_sequential_write": {"value": 860.91, "unit": "MB/s"},

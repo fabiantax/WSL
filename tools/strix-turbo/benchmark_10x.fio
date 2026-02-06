@@ -1,0 +1,478 @@
+# =============================================================================
+# Strix-Turbo 10x Benchmark Suite
+# =============================================================================
+#
+# Comprehensive fio benchmarks to validate 10x performance improvement.
+#
+# Targets:
+#   - Random 4K Read: 50K -> 500K IOPS (10x)
+#   - Random 4K Write: 30K -> 300K IOPS (10x)
+#   - Sequential Read: 2 GB/s -> 7 GB/s (3.5x)
+#   - Sequential Write: 1.5 GB/s -> 5 GB/s (3.3x)
+#   - Latency: 100us -> 10us (10x)
+#
+# Usage:
+#   # Full benchmark suite (takes ~30 minutes)
+#   fio benchmark_10x.fio
+#
+#   # Quick validation (takes ~5 minutes)
+#   fio benchmark_10x.fio --section=quick-validation
+#
+#   # Specific test
+#   fio benchmark_10x.fio --section=rand-read-4k-iops
+#
+# Output:
+#   Results saved to benchmark_results/ directory
+#
+# =============================================================================
+
+[global]
+# Use io_uring for async I/O (critical for 10x)
+ioengine=io_uring
+
+# Enable io_uring features
+sqthread_poll=1
+registerfiles=1
+fixedbufs=1
+
+# Test directory (change to your NVMe mount)
+directory=/tmp/fio-test
+
+# Common settings
+direct=1
+time_based=1
+group_reporting=1
+ramp_time=5
+runtime=60
+
+# Output format
+output-format=json+
+write_bw_log=benchmark_results/bw
+write_lat_log=benchmark_results/lat
+write_iops_log=benchmark_results/iops
+log_avg_msec=1000
+
+# =============================================================================
+# Quick Validation (5 minutes)
+# =============================================================================
+
+[quick-validation]
+stonewall
+description=Quick validation - Random 4K Read
+rw=randread
+bs=4k
+numjobs=4
+iodepth=64
+size=1G
+runtime=30
+
+# =============================================================================
+# Random Read IOPS (Target: 500K+)
+# =============================================================================
+
+[rand-read-4k-iops]
+stonewall
+description=Random 4K Read IOPS - Maximum throughput
+rw=randread
+bs=4k
+numjobs=16
+iodepth=128
+size=4G
+runtime=60
+
+[rand-read-4k-low-latency]
+stonewall
+description=Random 4K Read - Low latency (QD=1)
+rw=randread
+bs=4k
+numjobs=1
+iodepth=1
+size=4G
+runtime=60
+
+[rand-read-4k-scaling]
+stonewall
+description=Random 4K Read - Queue depth scaling
+rw=randread
+bs=4k
+numjobs=1
+iodepth=1
+iodepth_batch=1
+iodepth_batch_complete=1
+size=4G
+runtime=30
+
+# Test with increasing queue depths
+[rand-read-qd1]
+stonewall
+rw=randread
+bs=4k
+numjobs=1
+iodepth=1
+size=1G
+runtime=15
+
+[rand-read-qd4]
+stonewall
+rw=randread
+bs=4k
+numjobs=1
+iodepth=4
+size=1G
+runtime=15
+
+[rand-read-qd16]
+stonewall
+rw=randread
+bs=4k
+numjobs=1
+iodepth=16
+size=1G
+runtime=15
+
+[rand-read-qd64]
+stonewall
+rw=randread
+bs=4k
+numjobs=1
+iodepth=64
+size=1G
+runtime=15
+
+[rand-read-qd128]
+stonewall
+rw=randread
+bs=4k
+numjobs=1
+iodepth=128
+size=1G
+runtime=15
+
+# =============================================================================
+# Random Write IOPS (Target: 300K+)
+# =============================================================================
+
+[rand-write-4k-iops]
+stonewall
+description=Random 4K Write IOPS - Maximum throughput
+rw=randwrite
+bs=4k
+numjobs=16
+iodepth=128
+size=4G
+runtime=60
+
+[rand-write-4k-low-latency]
+stonewall
+description=Random 4K Write - Low latency (QD=1)
+rw=randwrite
+bs=4k
+numjobs=1
+iodepth=1
+size=4G
+runtime=60
+
+# =============================================================================
+# Sequential Bandwidth (Target: 7 GB/s read, 5 GB/s write)
+# =============================================================================
+
+[seq-read-bandwidth]
+stonewall
+description=Sequential Read Bandwidth - Maximum
+rw=read
+bs=1M
+numjobs=4
+iodepth=32
+size=8G
+runtime=60
+
+[seq-write-bandwidth]
+stonewall
+description=Sequential Write Bandwidth - Maximum
+rw=write
+bs=1M
+numjobs=4
+iodepth=32
+size=8G
+runtime=60
+
+[seq-read-single]
+stonewall
+description=Sequential Read - Single thread
+rw=read
+bs=1M
+numjobs=1
+iodepth=32
+size=8G
+runtime=60
+
+[seq-write-single]
+stonewall
+description=Sequential Write - Single thread
+rw=write
+bs=1M
+numjobs=1
+iodepth=32
+size=8G
+runtime=60
+
+# =============================================================================
+# Mixed Workloads (Real-world simulation)
+# =============================================================================
+
+[mixed-70-30]
+stonewall
+description=Mixed Read/Write 70/30
+rw=randrw
+rwmixread=70
+bs=4k
+numjobs=8
+iodepth=64
+size=4G
+runtime=60
+
+[mixed-50-50]
+stonewall
+description=Mixed Read/Write 50/50
+rw=randrw
+rwmixread=50
+bs=4k
+numjobs=8
+iodepth=64
+size=4G
+runtime=60
+
+# =============================================================================
+# Latency Focus (Target: < 20us average)
+# =============================================================================
+
+[latency-4k-read]
+stonewall
+description=Latency Test - 4K Random Read
+rw=randread
+bs=4k
+numjobs=1
+iodepth=1
+size=1G
+runtime=60
+percentile_list=50:90:95:99:99.9:99.99
+
+[latency-4k-write]
+stonewall
+description=Latency Test - 4K Random Write
+rw=randwrite
+bs=4k
+numjobs=1
+iodepth=1
+size=1G
+runtime=60
+percentile_list=50:90:95:99:99.9:99.99
+
+# =============================================================================
+# Block Size Scaling
+# =============================================================================
+
+[bs-512b]
+stonewall
+description=Block Size Test - 512B
+rw=randread
+bs=512
+numjobs=4
+iodepth=64
+size=1G
+runtime=30
+
+[bs-4k]
+stonewall
+description=Block Size Test - 4K
+rw=randread
+bs=4k
+numjobs=4
+iodepth=64
+size=1G
+runtime=30
+
+[bs-16k]
+stonewall
+description=Block Size Test - 16K
+rw=randread
+bs=16k
+numjobs=4
+iodepth=64
+size=2G
+runtime=30
+
+[bs-64k]
+stonewall
+description=Block Size Test - 64K
+rw=randread
+bs=64k
+numjobs=4
+iodepth=64
+size=4G
+runtime=30
+
+[bs-256k]
+stonewall
+description=Block Size Test - 256K
+rw=randread
+bs=256k
+numjobs=4
+iodepth=32
+size=4G
+runtime=30
+
+[bs-1m]
+stonewall
+description=Block Size Test - 1M
+rw=randread
+bs=1m
+numjobs=4
+iodepth=16
+size=8G
+runtime=30
+
+# =============================================================================
+# io_uring vs libaio comparison
+# =============================================================================
+
+[uring-baseline]
+stonewall
+description=io_uring Baseline
+ioengine=io_uring
+sqthread_poll=1
+rw=randread
+bs=4k
+numjobs=4
+iodepth=64
+size=2G
+runtime=30
+
+[libaio-comparison]
+stonewall
+description=libaio Comparison (for reference)
+ioengine=libaio
+rw=randread
+bs=4k
+numjobs=4
+iodepth=64
+size=2G
+runtime=30
+
+# =============================================================================
+# Thread Scaling
+# =============================================================================
+
+[threads-1]
+stonewall
+description=Thread Scaling - 1 thread
+rw=randread
+bs=4k
+numjobs=1
+iodepth=64
+size=2G
+runtime=30
+
+[threads-4]
+stonewall
+description=Thread Scaling - 4 threads
+rw=randread
+bs=4k
+numjobs=4
+iodepth=64
+size=2G
+runtime=30
+
+[threads-8]
+stonewall
+description=Thread Scaling - 8 threads
+rw=randread
+bs=4k
+numjobs=8
+iodepth=64
+size=2G
+runtime=30
+
+[threads-16]
+stonewall
+description=Thread Scaling - 16 threads (full Zen 5)
+rw=randread
+bs=4k
+numjobs=16
+iodepth=64
+size=2G
+runtime=30
+
+# =============================================================================
+# Real-World Workload Simulations
+# =============================================================================
+
+[workload-database]
+stonewall
+description=Database Workload Simulation
+rw=randrw
+rwmixread=80
+bs=8k
+numjobs=8
+iodepth=32
+size=4G
+runtime=60
+
+[workload-build]
+stonewall
+description=Build System Workload (many small reads)
+rw=randread
+bs=4k
+numjobs=16
+iodepth=16
+size=2G
+runtime=60
+# Simulate compiler reading many small files
+filesize=64k
+nrfiles=1000
+openfiles=100
+
+[workload-git]
+stonewall
+description=Git Operations Workload
+rw=randrw
+rwmixread=90
+bs=4k
+numjobs=4
+iodepth=8
+size=1G
+runtime=60
+
+# =============================================================================
+# NVMe Passthrough Validation
+# =============================================================================
+
+[passthrough-validation]
+stonewall
+description=NVMe Passthrough Validation
+# This should show near-native NVMe speeds
+# Native NVMe: ~1M IOPS random 4K read
+# VHDX overhead: ~50-100K IOPS
+# Passthrough target: ~800K+ IOPS
+rw=randread
+bs=4k
+numjobs=16
+iodepth=256
+size=8G
+runtime=120
+
+# =============================================================================
+# Endurance/Stability Test
+# =============================================================================
+
+[endurance-test]
+stonewall
+description=Endurance Test - 10 minute sustained load
+rw=randrw
+rwmixread=70
+bs=4k
+numjobs=8
+iodepth=64
+size=16G
+runtime=600
+time_based=1
