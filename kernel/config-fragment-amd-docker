@@ -1,0 +1,67 @@
+# WSL2 Custom Kernel Configuration Fragment
+# AMD GPU (ROCm/RDNA 3+/Strix Halo) + Docker support
+#
+# Apply on top of the Microsoft WSL2 base config:
+#   cp Microsoft/config-wsl .config
+#   scripts/kconfig/merge_config.sh -m .config kernel/config-fragment-amd-docker
+#
+# Or use tools/build-kernel.sh for the full automated workflow.
+
+# -----------------------------------------------------------------------
+# 1. Docker Must-Haves: Cgroups & Networking
+#    Docker will not start if any of these are missing.
+# -----------------------------------------------------------------------
+
+# Control Groups (cgroups v1 + v2)
+CONFIG_CGROUPS=y
+CONFIG_MEMCG=y
+CONFIG_BLK_CGROUP=y
+CONFIG_CGROUP_SCHED=y
+CONFIG_CGROUP_PIDS=y
+
+# Namespaces
+CONFIG_NAMESPACES=y
+CONFIG_NET_NS=y
+
+# Netfilter / nftables (replaces legacy iptables in modern Docker)
+CONFIG_NF_TABLES=y
+CONFIG_NFT_NAT=y
+CONFIG_NFT_MASQ=y
+CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
+
+# iptables masquerade (fallback, required by older Docker versions)
+CONFIG_IP_NF_IPTABLES=y
+CONFIG_IP_NF_TARGET_MASQUERADE=y
+
+# -----------------------------------------------------------------------
+# 2. AMD GPU / ROCm (/dev/kfd and DRM)
+#    Enables the Radeon 8060S (Strix Halo) for ROCm workloads.
+# -----------------------------------------------------------------------
+
+# AMDGPU DRM driver (built-in, not module — more reliable under WSL2)
+CONFIG_DRM_AMDGPU=y
+CONFIG_DRM_AMDGPU_USERPTR=y
+
+# HSA (Heterogeneous System Architecture) — creates /dev/kfd for ROCm
+CONFIG_HSA_AMD=y
+
+# DXGKRNL: Microsoft DirectX Graphics bridge between Windows & Linux GPU
+# This is the crucial link that lets WSL2 surface the Windows GPU to Linux.
+CONFIG_DXGKRNL=y
+
+# -----------------------------------------------------------------------
+# 3. Zen 5 / Strix Halo CPU Optimisations
+#    Maximises CPU-to-GPU throughput on AMD Ryzen AI 395 Pro / HX 395.
+# -----------------------------------------------------------------------
+
+# Processor family selection
+CONFIG_PROCESSOR_SELECT=y
+
+# Zen 5 micro-architecture (requires kernel 6.8+)
+CONFIG_MZEN5=y
+
+# SMP CPU count — matches the 395 Pro's 32 logical processors
+CONFIG_NR_CPUS=32
+
+# NUMA topology (essential for Strix Halo's unified memory bus)
+CONFIG_NUMA=y
